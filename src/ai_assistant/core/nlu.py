@@ -105,12 +105,18 @@ def fast_path_nlu(user_text: str, app_index: dict, dry_run: bool = False) -> tup
 
     # 2. Pin laptop
     if re.search(r"\b(pin còn bao nhiêu|kiểm tra pin|xem pin|tình trạng pin|sạc pin chưa|còn mấy phần trăm pin|mức pin)\b", t):
+        if dry_run:
+            return True, "Pin hiện tại còn 85%."
         return True, get_battery_info()
 
     # 2.5. Kiểm tra Git & Clipboard Wayland (Dành cho lập trình viên)
     if re.search(r"\b(kiểm tra git|git status|tình trạng git|nhánh git hiện tại|nhánh git)\b", t):
+        if dry_run:
+            return True, "Trạng thái Git: Nhánh main sạch sẽ."
         return True, get_git_status_summary()
     if re.search(r"\b(đọc clipboard|đọc bộ nhớ tạm|bộ nhớ tạm có gì|clipboard có gì|trong clipboard có gì)\b", t):
+        if dry_run:
+            return True, "Nội dung trong bộ nhớ tạm."
         clip = get_clipboard_content()
         if not clip:
             return True, "Bộ nhớ tạm hiện đang trống hoặc không chứa văn bản bạn nhé."
@@ -250,23 +256,33 @@ def fast_path_nlu(user_text: str, app_index: dict, dry_run: bool = False) -> tup
 
     # 7. Kiểm tra cấu hình phần cứng & RAM
     if re.search(r"\b(kiểm tra ram|ram còn bao nhiêu|bộ nhớ ram|cấu hình máy|tình trạng máy tính|máy tính chạy bao lâu|thông số máy)\b", t):
+        if dry_run:
+            return True, "RAM đang sử dụng 4.2 GB / 16.0 GB."
         return True, get_system_hardware_info()
 
     # 7.1. Công cụ Lập trình viên Đa nhiệm (Port, Docker, Java)
     kill_port_match = re.search(r"\b(?:kill|giải phóng|xóa|tắt|đóng)\s+(?:cổng|port)\s+(\d+)\b", t)
     if kill_port_match:
         p_num = int(kill_port_match.group(1))
+        if dry_run:
+            return True, f"Đã giải phóng cổng {p_num}."
         return True, kill_port_process(p_num)
 
     check_port_match = re.search(r"\b(?:cổng|port)\s+(\d+)\b", t)
     if check_port_match:
         p_num = int(check_port_match.group(1))
+        if dry_run:
+            return True, f"Cổng {p_num} đang trống."
         return True, check_port_status(p_num)
 
     if re.search(r"\b(kiểm tra docker|docker có gì|trạng thái docker|container nào đang chạy|xem docker)\b", t):
+        if dry_run:
+            return True, "Docker hiện có 2 container đang chạy."
         return True, check_docker_containers()
 
     if re.search(r"\b(kiểm tra java|java version|phiên bản java|máy đang cài java mấy|java mấy)\b", t):
+        if dry_run:
+            return True, "Hệ thống đang cài đặt OpenJDK 21 LTS."
         return True, check_java_version()
 
     # 8. Tính toán số học nhanh
@@ -276,6 +292,8 @@ def fast_path_nlu(user_text: str, app_index: dict, dry_run: bool = False) -> tup
 
     # 9. Thời tiết nhanh
     if re.search(r"\b(thời tiết|nhiệt độ ngoài trời|trời có mưa không|mưa hay nắng)\b", t):
+        if dry_run:
+            return True, "Thời tiết hiện tại 28 độ C, trời quang mây tạnh."
         loc_match = re.search(r"(?:ở|tại)\s+([a-zA-Z0-9\s_àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]+)", t)
         location = loc_match.group(1).strip() if loc_match else ""
         return True, get_weather_info(location)

@@ -1,0 +1,33 @@
+{
+  "session_id": "a5cb6521",
+  "timestamp": "2026-09-24 22:07:13",
+  "goal": "Test trace",
+  "model": "qwen2.5:3b",
+  "duration_ms": 0.02,
+  "final_status": "success",
+  "plan": [],
+  "steps_count": 1,
+  "steps": [
+    {
+      "step_index": 1,
+      "tool_name": "run_terminal_command",
+      "arguments": {
+        "command": "echo test"
+      },
+      "observation": {
+        "success": true
+      },
+      "start_time": 1790262433.373351,
+      "duration_ms": 0.0,
+      "status": "success"
+    }
+  ],
+  "budget": {
+    "max_steps": 8,
+    "max_runtime_sec": 60.0,
+    "max_tool_calls": 12,
+    "max_consecutive_identical_calls": 2
+  },
+  "errors": [],
+  "final_response": "Đã hoàn thành"
+}

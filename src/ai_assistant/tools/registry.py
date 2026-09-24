@@ -18,7 +18,7 @@ from ai_assistant.tools import system, apps, dev, web, timer
 
 # Danh sách các lệnh nguy hiểm bị chặn để bảo vệ hệ điều hành
 FORBIDDEN_COMMAND_PATTERNS = [
-    r"\brm\s+-[rRfF]*\s+/(?:\s|$)",        # rm -rf /
+    r"\brm\s+(?:-[a-zA-Z0-9-]+\s+)*(?:/(?:\s|$|\*|\.\.)|/home/\.\./|/etc(?:\s|/|$)|/boot(?:\s|/|$)|/sys(?:\s|/|$)|/dev(?:\s|/|$)|/proc(?:\s|/|$)|/root(?:\s|/|$))", # rm nguy hiểm vào root/system
     r"\bmkfs\b",                            # Định dạng phân vùng ổ đĩa
     r"\bdd\s+if=.*of=/dev/(?:sd|nvme|vd)",  # Ghi đè trực tiếp ổ cứng vật lý
     r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;",# Fork bomb

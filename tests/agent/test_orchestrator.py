@@ -6,7 +6,7 @@ import sys
 import os
 import unittest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src")))
 
 from ai_assistant.tools.registry import tool_registry, run_terminal_command, find_files_or_projects
 from ai_assistant.core.orchestrator import agent_orchestrator

@@ -6,7 +6,7 @@ import sys
 import os
 import unittest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src")))
 
 from ai_assistant.config import APP_ALIASES, EXIT_PHRASES
 from ai_assistant.core.nlu import is_exit_phrase, clean_user_input, fast_path_nlu

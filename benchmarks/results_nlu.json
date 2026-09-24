@@ -1,0 +1,14 @@
+{
+  "total_queries": 5000,
+  "unique_commands": 25,
+  "iterations": 200,
+  "throughput_qps": 463.7,
+  "mean_ms": 2.157,
+  "median_ms": 0.02,
+  "stdev_ms": 6.675,
+  "min_ms": 0.001,
+  "max_ms": 36.716,
+  "p90_ms": 3.819,
+  "p95_ms": 22.511,
+  "p99_ms": 27.452
+}

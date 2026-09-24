@@ -12,6 +12,7 @@ from typing import Optional
 
 from ai_assistant.config import OLLAMA_URL, DEFAULT_VOICE
 from ai_assistant.core.state import set_assistant_state
+from ai_assistant.core.agent_state import StructuredAgentState, AgentBudget
 from ai_assistant.ai.model_router import route_task, MODEL_ROLES
 from ai_assistant.tools.registry import tool_registry
 from ai_assistant.speech.tts import speak, sanitize_text_for_voice
@@ -167,10 +168,10 @@ class AgentOrchestrator:
 
         return False
 
-    def run_agent_loop(self, prompt: str, voice: str = DEFAULT_VOICE, max_steps: int = 6) -> str:
+    def run_agent_loop(self, prompt: str, voice: str = DEFAULT_VOICE, max_steps: int = 8, budget: Optional[AgentBudget] = None) -> str:
         """
         Thực thi vòng lặp Agent ReAct: Plan -> Act -> Observe -> Reflect.
-        Tự động điều phối công cụ và phản hồi trạng thái thời gian thực lên Quickshell Overlay.
+        Tự động điều phối công cụ, quản lý Budget, phát hiện Stall (lặp vô tận) và lưu Trace.
         """
         print(f"\n🧠 [Agent Core] Kích hoạt Bộ não điều phối cho tác vụ: '{prompt}'")
         set_assistant_state("thinking", "Đang lập kế hoạch tác vụ...")
@@ -183,6 +184,10 @@ class AgentOrchestrator:
             active_model = MODEL_ROLES.get("coder", active_model)
 
         print(f"🎯 [Agent Core] Sử dụng mô hình: {active_model} ({role_name})")
+
+        # Khởi tạo Structured Agent State & Budget
+        actual_budget = budget or AgentBudget(max_steps=max_steps)
+        state = StructuredAgentState(goal=prompt, model=active_model, budget=actual_budget)
 
         schemas = self.registry.get_relevant_schemas(prompt)
         tools_desc = ""
@@ -238,9 +243,17 @@ VÍ DỤ GỌI CÔNG CỤ:
         step = 0
         final_answer = ""
 
-        while step < max_steps:
+        while step < actual_budget.max_steps:
+            # Kiểm tra Agent Budget (timeout, steps, tool calls)
+            is_budget_exceeded, reason = state.check_budget_exceeded()
+            if is_budget_exceeded:
+                print(f"⚠️ [Agent Core] {reason}. Dừng vòng lặp an toàn.")
+                state.final_status = "budget_exceeded"
+                state.errors.append(reason)
+                break
+
             step += 1
-            print(f"\n🔄 [Agent Loop - Bước {step}/{max_steps}] Đang suy luận bước đi tiếp theo...")
+            print(f"\n🔄 [Agent Loop - Bước {step}/{actual_budget.max_steps}] Đang suy luận bước đi tiếp theo...")
 
             payload = {
                 "model": active_model,
@@ -257,7 +270,9 @@ VÍ DỤ GỌI CÔNG CỤ:
                 if resp.status_code != 200:
                     err = f"Lỗi gọi Ollama: HTTP {resp.status_code}"
                     print(f"⚠️ {err}")
+                    state.errors.append(err)
                     final_answer = "Xin lỗi, tôi gặp trục trặc khi kết nối với bộ não xử lý."
+                    state.final_status = "error"
                     break
 
                 res_json = resp.json()
@@ -271,6 +286,7 @@ VÍ DỤ GỌI CÔNG CỤ:
                 if tool_calls:
                     messages.append({"role": "assistant", "content": content})
 
+                    stalled = False
                     for call in tool_calls:
                         fn = call.get("function", {})
                         t_name = fn.get("name", "")
@@ -285,34 +301,62 @@ VÍ DỤ GỌI CÔNG CỤ:
                         if isinstance(t_args, dict) and "arguments" in t_args and isinstance(t_args["arguments"], dict):
                             t_args = t_args["arguments"]
 
+                        # Stall Detection: Chống lặp vô tận cùng 1 tool call
+                        if state.is_stalled(t_name, t_args):
+                            print(f"🛑 [Stall Detection] Phát hiện gọi lặp công cụ '{t_name}' liên tiếp. Tự động ngắt vòng lặp.")
+                            state.final_status = "stalled"
+                            state.errors.append(f"Stall detected on tool '{t_name}'")
+                            final_answer = f"Tôi nhận thấy việc gọi công cụ {t_name} đang bị lặp lại mà không có kết quả mới. Tôi tạm dừng để bạn kiểm tra lại nhé."
+                            stalled = True
+                            break
+
                         print(f"🔧 [Act] Gọi công cụ: {t_name}({t_args})")
                         set_assistant_state("thinking", f"Đang thực hiện: {t_name}...")
 
-                        # Thực thi công cụ qua ToolRegistry
+                        # Thực thi công cụ qua ToolRegistry và bấm giờ
+                        t_start = time.time()
                         exec_result = self.registry.execute(t_name, t_args)
+                        t_dur = (time.time() - t_start) * 1000
+
+                        # Ghi nhận vào StructuredAgentState
+                        state.add_step(
+                            tool_name=t_name,
+                            arguments=t_args,
+                            observation=exec_result,
+                            duration_ms=t_dur,
+                            status="success" if exec_result.get("success") else "failed"
+                        )
+
                         obs_str = json.dumps(exec_result, ensure_ascii=False)
                         obs_preview = obs_str[:160] + "..." if len(obs_str) > 160 else obs_str
-                        print(f"👁️ [Observe] Kết quả: {obs_preview}")
+                        print(f"👁️ [Observe] Kết quả ({t_dur:.1f}ms): {obs_preview}")
 
                         # Gửi phản hồi quan sát (OBSERVE) trở lại cho LLM
                         messages.append({
                             "role": "user",
                             "content": f"[Kết quả quan sát công cụ {t_name}]: {obs_str}"
                         })
+
+                    if stalled:
+                        break
                     continue
 
                 # 2. Nếu mô hình đã hoàn thành và trả lời bằng ngôn ngữ tự nhiên (REFLECT / DONE)
                 if content:
                     print(f"💡 [Reflect / Hoàn thành] {content}")
                     final_answer = sanitize_text_for_voice(content)
+                    state.final_status = "success"
                     break
 
             except Exception as e:
-                print(f"❌ [Agent Core] Ngoại lệ trong vòng lặp: {e}")
+                err_msg = f"Ngoại lệ trong vòng lặp: {e}"
+                print(f"❌ [Agent Core] {err_msg}")
+                state.errors.append(err_msg)
+                state.final_status = "error"
                 final_answer = f"Đã xảy ra sự cố khi điều phối tác vụ: {e}"
                 break
 
-        # Nếu đạt max_steps mà chưa có câu trả lời cuối cùng, yêu cầu LLM tóm tắt lại toàn bộ quan sát
+        # Nếu đạt giới hạn mà chưa có câu trả lời cuối cùng, yêu cầu LLM tóm tắt lại toàn bộ quan sát
         if not final_answer:
             print("\n⏳ [Agent Core] Đang tổng hợp kết quả cuối cùng từ các quan sát...")
             set_assistant_state("thinking", "Đang tổng hợp kết quả...")
@@ -339,6 +383,13 @@ VÍ DỤ GỌI CÔNG CỤ:
 
         if not final_answer:
             final_answer = "Tôi đã hoàn thành toàn bộ tác vụ cho bạn rồi nhé."
+
+        # Lưu Execution Trace ra file JSON
+        if state.final_status == "in_progress":
+            state.final_status = "success"
+        trace_file = state.complete(final_response=final_answer, status=state.final_status)
+        if trace_file:
+            print(f"📊 [Agent Trace] Đã lưu execution trace: {trace_file}")
 
         # Hiển thị lên Quickshell Overlay và phát ra loa
         set_assistant_state("speaking", text=final_answer)

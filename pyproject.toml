@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-ai"
+version = "2.0.0"
+description = "Local AI OS Agent & Voice Assistant for Arch Linux / Hyprland"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ctranslate2",
+    "edge-tts",
+    "faster-whisper",
+    "numpy",
+    "openwakeword",
+    "requests",
+    "scipy",
+    "sounddevice",
+]
+
+[project.scripts]
+ai-assistant = "ai_assistant.app:main"
+alexa-voice = "ai_assistant.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

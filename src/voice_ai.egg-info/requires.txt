@@ -1,0 +1,8 @@
+ctranslate2
+edge-tts
+faster-whisper
+numpy
+openwakeword
+requests
+scipy
+sounddevice

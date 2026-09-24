@@ -48,26 +48,27 @@ Kiến trúc V2 được tái cấu trúc hoàn toàn theo mô hình **phân l�
                                         │
                  ┌──────────────────────┴──────────────────────┐
                  ▼                                             ▼
-       [ Fast-Path NLU (<5ms) ]                    [ Deep-Path LLM (Ollama) ]
-       Deterministic Regex Match                   Smart Task Specialization:
-       (Không tốn inference)                        - Fast (3B): Phản xạ thường ngày
-                 │                                  - Coder (7B): Java, Linux, Debug
-                 │                                  - Reasoning (8B): Suy luận logic
+       [ Fast-Path NLU (<5ms) ]                    [ Agent Core Orchestrator ]
+       Deterministic Regex Match                   ReAct Loop (Plan-Act-Observe-Reflect)
+       (Không tốn inference)                        Native Ollama Tool Calling:
+                 │                                  - Fast (3B): Phản xạ thường ngày
+                 │                                  - Coder (7B): Multi-step / Code / Terminal
+                 │                                  - Reasoning (8B): Phân tích logic sâu
                  │                                             │
                  └──────────────────────┬──────────────────────┘
                                         ▼
                          ┌─────────────────────────────┐
-                         │        TOOL SYSTEM          │
-                         │   Registry & Execution      │
+                         │   UNIVERSAL TOOL REGISTRY   │
+                         │  14+ Tools & Safety Guard   │
                          └──────────────┬──────────────┘
                                         │
      ┌──────────────┬───────────────────┼───────────────────┬──────────────┐
      ▼              ▼                   ▼                   ▼              ▼
-[ System Tools ] [ App/Window ]   [ Developer ]       [ Web/Image ]   [ Timers ]
-- Âm lượng/Mute  - .desktop index - Git status        - DuckDuckGo    - Hẹn giờ
-- Độ sáng màn    - Hyprland 0.56  - Docker containers - Tải ảnh mạng  - Báo thức
-- Wi-Fi/BT       - Close window   - Port (fuser/ss)   - Mở URL        - Ghi chú
-- ASUS Profiles  - Fullscreen     - Java/JVM info     - YouTube search
+[ System Tools ] [ App/Window ]   [ Terminal & Code ] [ Web/Image ]   [ Timers ]
+- Âm lượng/Mute  - .desktop index - run_terminal_cmd  - DuckDuckGo    - Hẹn giờ
+- Độ sáng màn    - Hyprland 0.56  - find_files_proj   - Tải ảnh mạng  - Báo thức
+- Wi-Fi/BT       - Close window   - Git & Docker      - Mở URL        - Ghi chú
+- ASUS Profiles  - Fullscreen     - Port ss / fuser   - YouTube search
      │              │                   │                   │              │
      └──────────────┴───────────────────┼───────────────────┴──────────────┘
                                         ▼
@@ -115,6 +116,19 @@ Kiến trúc V2 được tái cấu trúc hoàn toàn theo mô hình **phân l�
 - **Quản lý Docker & Git:** Xem nhanh trạng thái các container đang chạy (`docker ps`) và kiểm tra nhánh Git, tệp tin chưa commit (`git status`) của project hiện tại.
 - **Thông tin Java / JVM:** Kiểm tra nhanh phiên bản runtime Java 21 LTS trên hệ thống.
 
+### 6. Bộ não điều phối Đa nhiệm (Agent Core Orchestrator - ReAct Loop)
+- **Hoàn toàn Tech-Agnostic / Đa nền tảng:** Không giới hạn ở một IDE hay một ngôn ngữ. Trợ lý có khả năng làm việc với mọi công cụ (IntelliJ, VS Code, Java Spring Boot, Python, Node.js, Go, Rust, Docker, Git, Linux administration, v.v.).
+- **Chu trình ReAct đầy đủ (Plan $\rightarrow$ Act $\rightarrow$ Observe $\rightarrow$ Reflect):**
+  - **Plan:** Tự động phân tích câu lệnh phức tạp hoặc có điều kiện (*"nếu... thì...", "và sau đó...", "kiểm tra build nếu lỗi thì tìm nguyên nhân"*).
+  - **Act:** Gọi công cụ thông qua cơ chế **Native Tool Calling** của Ollama (`qwen2.5-coder:7b` hoặc `qwen2.5:3b`).
+  - **Observe:** Thu thập kết quả thực thi công cụ (`exit_code`, `stdout`, `stderr`, danh sách tiến trình, file...).
+  - **Reflect:** Đánh giá kết quả, xử lý rẽ nhánh theo điều kiện, hoặc tiếp tục các bước kế tiếp cho tới khi hoàn tất.
+- **Universal Tool Registry & Safety Guard:**
+  - Tự động sinh JSON Schema từ Python type hints (`@tool_registry.register`).
+  - Tích hợp **Safety Guard** ngăn chặn các lệnh bash phá hoại hệ thống nguy hiểm (`rm -rf /`, `mkfs`, ghi trực tiếp ổ cứng, fork bomb...).
+  - Cung cấp sẵn 14 công cụ mạnh mẽ: thực thi lệnh terminal bash an toàn, tìm kiếm project/file toàn máy, đọc nội dung file, đóng/mở app, liệt kê cửa sổ Hyprland, quản lý cổng mạng, Docker, Git, điều khiển phần cứng, tra cứu DuckDuckGo, hẹn giờ.
+- **Phản hồi Đồng bộ & Giọng nói Súc tích:** Cập nhật trạng thái từng bước hành động lên **Quickshell Dynamic Island Overlay** và chuyển hóa kết quả cuối cùng thành 1–2 câu tiếng Việt tự nhiên phát ngay ra loa qua Edge-TTS.
+
 ---
 
 ## 📁 Cấu Trúc Dự Án (Kiến Trúc V2 Modular)
@@ -135,6 +149,7 @@ voice-ai/
 │   ├── app.py                   # Runtime chính & CLI command parser
 │   │
 │   ├── core/                    # Trọng tâm điều phối Agent
+│   │   ├── orchestrator.py      # BỘ NÃO ĐIỀU PHỐI (ReAct Loop: Plan-Act-Observe-Reflect)
 │   │   ├── agent.py             # Vòng lặp tương tác đa lượt & Push-to-Talk
 │   │   ├── nlu.py               # Fast-Path NLU (<5ms) & phân tích intent
 │   │   ├── state.py             # Đồng bộ trạng thái Quickshell UI
@@ -155,6 +170,7 @@ voice-ai/
 │   │   └── ollama_client.py     # Streaming TTS pipeline kết nối Ollama
 │   │
 │   ├── tools/                   # Bộ công cụ thực thi tác vụ hệ thống
+│   │   ├── registry.py          # UNIVERSAL TOOL REGISTRY (14+ Tools, Schemas & Safety Guard)
 │   │   ├── system.py            # Âm lượng, độ sáng, pin, RAM, Wi-Fi, Bluetooth, ASUS
 │   │   ├── apps.py              # Quét .desktop, đóng/mở cửa sổ Hyprland v0.56.2
 │   │   ├── dev.py               # Tiện ích Git, Docker, Java, giải phóng port
@@ -166,7 +182,8 @@ voice-ai/
 │       └── client.py            # Gửi tín hiệu điều khiển (--trigger, --stop, --status)
 │
 ├── tests/                       # Bộ kiểm thử đơn vị tự động
-│   └── test_v2_modules.py       # Unit tests kiểm tra NLU, Router, Tools, Audio
+│   ├── test_v2_modules.py       # Unit tests kiểm tra NLU, Router, Tools, Audio
+│   └── test_orchestrator.py     # Unit tests kiểm tra Orchestrator, Registry & Safety Guard
 └── training/                    # Tài liệu & Notebook fine-tune mô hình
 ```
 

@@ -45,6 +45,7 @@ from ai_assistant.tools.web import (
     open_youtube_search,
     open_google_search,
 )
+from ai_assistant.tools.registry import tool_registry
 
 __all__ = [
     "timer_manager",
@@ -88,4 +89,5 @@ __all__ = [
     "open_url",
     "open_youtube_search",
     "open_google_search",
+    "tool_registry",
 ]

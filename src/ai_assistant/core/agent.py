@@ -137,10 +137,17 @@ def process_interaction(
                 sys.exit(0)
             return
         else:
-            # 7. Chuyển sang Deep-Path LLM (Streaming TTS)
-            print("🧠 [Deep-Path LLM - Đang suy luận và đọc theo luồng...]")
-            reply = query_ollama_streaming(user_text, app_index, voice=voice)
-            print(f"🤖 Alexa: {reply}\n")
+            # 7. Kiểm tra xem có phải tác vụ đa bước cần kích hoạt Agent Core không
+            from ai_assistant.core.orchestrator import agent_orchestrator
+            if agent_orchestrator.is_complex_request(user_text):
+                print("🧠 [Agent Core Orchestrator - Kích hoạt vòng lặp Plan-Act-Observe-Reflect]")
+                reply = agent_orchestrator.run_agent_loop(user_text, voice=voice)
+                print(f"🤖 Alexa (Agent Core): {reply}\n")
+            else:
+                # 8. Đàm thoại thông thường hoặc câu hỏi kiến thức -> Streaming TTS
+                print("💬 [Deep-Path LLM - Đang suy luận và đọc theo luồng...]")
+                reply = query_ollama_streaming(user_text, app_index, voice=voice)
+                print(f"🤖 Alexa: {reply}\n")
             set_assistant_state("idle")
 
         if not continuous:

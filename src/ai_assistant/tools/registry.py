@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ai_assistant.config import BASE_DIR, PROTECTED_CLASSES
 from ai_assistant.tools import system, apps, dev, web, timer
+from ai_assistant.tools.permission import permission_policy, argument_validator, PermissionLevel, FORBIDDEN_BASH_PATTERNS
 
 # Danh sách các lệnh nguy hiểm bị chặn để bảo vệ hệ điều hành
 FORBIDDEN_COMMAND_PATTERNS = [
@@ -222,8 +223,28 @@ class ToolRegistry:
                                 filtered_args["action"] = arguments[a]
                                 break
 
-            res = tool.func(**filtered_args)
-            return {"success": True, "result": res}
+            # 3. Tầng kiểm tra & chuẩn hóa tham số (Argument Validator)
+            is_valid, validated_args, val_err = argument_validator.validate(tool.name, filtered_args)
+            if not is_valid:
+                return {
+                    "success": False,
+                    "error": f"Lỗi xác thực tham số: {val_err}",
+                    "tool": tool.name
+                }
+
+            # 4. Tầng kiểm duyệt phân quyền (Permission Policy)
+            is_allowed, perm_reason, perm_level = permission_policy.check(tool.name, validated_args)
+            if not is_allowed:
+                return {
+                    "success": False,
+                    "error": perm_reason,
+                    "permission_level": perm_level.value,
+                    "tool": tool.name
+                }
+
+            # 5. Thực thi công cụ qua Executor
+            res = tool.func(**validated_args)
+            return {"success": True, "result": res, "permission_level": perm_level.value}
         except Exception as e:
             return {"success": False, "error": f"Lỗi khi thực thi '{name}': {str(e)}"}
 

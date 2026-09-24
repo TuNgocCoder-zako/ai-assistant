@@ -13,6 +13,7 @@ from typing import Optional
 from ai_assistant.config import OLLAMA_URL, DEFAULT_VOICE
 from ai_assistant.core.state import set_assistant_state
 from ai_assistant.core.agent_state import StructuredAgentState, AgentBudget
+from ai_assistant.core.evaluator import task_evaluator
 from ai_assistant.ai.model_router import route_task, MODEL_ROLES
 from ai_assistant.tools.registry import tool_registry
 from ai_assistant.speech.tts import speak, sanitize_text_for_voice
@@ -258,6 +259,7 @@ VÍ DỤ GỌI CÔNG CỤ:
             payload = {
                 "model": active_model,
                 "messages": messages,
+                "tools": schemas,  # Native Ollama tool calling schemas
                 "stream": False,
                 "options": {
                     "temperature": 0.1,
@@ -279,12 +281,26 @@ VÍ DỤ GỌI CÔNG CỤ:
                 msg = res_json.get("message", {})
                 content = msg.get("content", "").strip()
 
-                # Trích xuất tool calls từ phản hồi của mô hình
-                tool_calls = self._parse_tool_calls_from_text(content)
+                # Hybrid Tool Calling Pipeline:
+                # 1. Kiểm tra structured tool_calls trả về từ native Ollama API
+                native_calls = msg.get("tool_calls")
+                if native_calls and isinstance(native_calls, list) and len(native_calls) > 0:
+                    tool_calls = native_calls
+                else:
+                    # 2. Dự phòng: trích xuất tool calls từ nội dung văn bản (Compatibility Parser)
+                    tool_calls = self._parse_tool_calls_from_text(content)
 
                 # 1. Nếu mô hình yêu cầu gọi công cụ (ACT)
                 if tool_calls:
                     messages.append({"role": "assistant", "content": content})
+
+                    # Trích xuất phần giải thích / suy luận của mô hình trước khi gọi tool
+                    decision_thought = ""
+                    if content:
+                        clean_thought = re.sub(r"```.*?```", "", content, flags=re.DOTALL)
+                        clean_thought = re.sub(r"<tool_call>.*?</tool_call>", "", clean_thought, flags=re.DOTALL).strip()
+                        if clean_thought:
+                            decision_thought = clean_thought[:120] + "..." if len(clean_thought) > 120 else clean_thought
 
                     stalled = False
                     for call in tool_calls:
@@ -313,29 +329,54 @@ VÍ DỤ GỌI CÔNG CỤ:
                         print(f"🔧 [Act] Gọi công cụ: {t_name}({t_args})")
                         set_assistant_state("thinking", f"Đang thực hiện: {t_name}...")
 
-                        # Thực thi công cụ qua ToolRegistry và bấm giờ
+                        # Thực thi công cụ qua ToolRegistry (có phân tầng Permission & Validator)
                         t_start = time.time()
                         exec_result = self.registry.execute(t_name, t_args)
                         t_dur = (time.time() - t_start) * 1000
+
+                        # Đánh giá hoàn thành mục tiêu & phân tích lỗi qua TaskCompletionEvaluator
+                        eval_res = task_evaluator.evaluate_step(
+                            goal=prompt,
+                            tool_name=t_name,
+                            args=t_args,
+                            observation=exec_result,
+                            step_index=state.current_step + 1,
+                            max_steps=actual_budget.max_steps
+                        )
+
+                        if eval_res.should_retry:
+                            state.record_retry(t_name, eval_res.reason)
 
                         # Ghi nhận vào StructuredAgentState
                         state.add_step(
                             tool_name=t_name,
                             arguments=t_args,
                             observation=exec_result,
+                            model_decision=decision_thought,
                             duration_ms=t_dur,
-                            status="success" if exec_result.get("success") else "failed"
+                            status="success" if exec_result.get("success") else "failed",
+                            error=exec_result.get("error") if not exec_result.get("success") else None,
+                            is_retry=eval_res.should_retry
                         )
 
                         obs_str = json.dumps(exec_result, ensure_ascii=False)
                         obs_preview = obs_str[:160] + "..." if len(obs_str) > 160 else obs_str
                         print(f"👁️ [Observe] Kết quả ({t_dur:.1f}ms): {obs_preview}")
 
-                        # Gửi phản hồi quan sát (OBSERVE) trở lại cho LLM
+                        # Gửi phản hồi quan sát (OBSERVE) cùng gợi ý điều phối (nếu có) trở lại cho LLM
+                        obs_feedback = f"[Kết quả quan sát công cụ {t_name}]: {obs_str}"
+                        if eval_res.suggested_feedback:
+                            obs_feedback += f"\n[Gợi ý điều phối]: {eval_res.suggested_feedback}"
+
                         messages.append({
                             "role": "user",
-                            "content": f"[Kết quả quan sát công cụ {t_name}]: {obs_str}"
+                            "content": obs_feedback
                         })
+
+                        # Nếu mục tiêu điều kiện đã thỏa mãn hoàn toàn (ví dụ: build thành công, không cần tìm lỗi)
+                        if eval_res.is_goal_met and not eval_res.should_continue:
+                            print(f"🎯 [Evaluator] Mục tiêu đã được thỏa mãn: {eval_res.reason}")
+                            break
 
                     if stalled:
                         break
@@ -390,6 +431,11 @@ VÍ DỤ GỌI CÔNG CỤ:
         trace_file = state.complete(final_response=final_answer, status=state.final_status)
         if trace_file:
             print(f"📊 [Agent Trace] Đã lưu execution trace: {trace_file}")
+
+        # In cây vết thực thi Agent Trace trực quan ra terminal
+        print("\n" + "=" * 60)
+        print(state.render_tree())
+        print("=" * 60 + "\n")
 
         # Hiển thị lên Quickshell Overlay và phát ra loa
         set_assistant_state("speaking", text=final_answer)

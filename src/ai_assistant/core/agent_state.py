@@ -1,6 +1,7 @@
 """
-Structured Agent State, Execution Trace & Budget Management (V2.1).
-Cung cấp mô hình trạng thái tường minh cho Agent Core: Goal, Plan, Steps, Observations, Stall Detection và Trace Logging.
+Structured Agent State, Execution Trace & Budget Management (V2.2).
+Cung cấp mô hình runtime state tường minh cho Agent Core:
+Goal, Plan, Steps, Observations, Tool History, Errors, Retry Count, Completion, Stall Detection và Hierarchical Execution Trace.
 """
 
 import os
@@ -19,9 +20,12 @@ class AgentStep:
     tool_name: str
     arguments: dict
     observation: dict
+    model_decision: str = ""       # Suy luận / quyết định của mô hình trước khi hành động
     start_time: float = field(default_factory=time.time)
     duration_ms: float = 0.0
-    status: str = "success"  # success, failed, blocked
+    status: str = "success"        # success, failed, blocked
+    error: Optional[str] = None
+    is_retry: bool = False
 
 @dataclass
 class AgentBudget:
@@ -41,11 +45,47 @@ class StructuredAgentState:
     budget: AgentBudget = field(default_factory=AgentBudget)
     start_time: float = field(default_factory=time.time)
     end_time: float = 0.0
-    final_status: str = "in_progress"  # in_progress, success, stalled, timeout, max_steps_exceeded, error
+    final_status: str = "in_progress"  # in_progress, success, stalled, timeout, budget_exceeded, error
     final_response: str = ""
     errors: list[str] = field(default_factory=list)
+    retry_count: int = 0
+    evaluation: Optional[dict] = None
 
-    def add_step(self, tool_name: str, arguments: dict, observation: dict, duration_ms: float = 0.0, status: str = "success") -> AgentStep:
+    @property
+    def completion(self) -> bool:
+        """Kiểm tra xem tác vụ đã hoàn tất thành công hay chưa."""
+        return self.final_status == "success"
+
+    @property
+    def tool_history(self) -> list[dict]:
+        """Danh sách lịch sử các công cụ đã gọi cùng tham số."""
+        return [
+            {
+                "step": s.step_index,
+                "tool": s.tool_name,
+                "arguments": s.arguments,
+                "status": s.status,
+                "duration_ms": s.duration_ms
+            }
+            for s in self.steps
+        ]
+
+    @property
+    def observations(self) -> list[dict]:
+        """Danh sách kết quả quan sát thu thập từ hệ thống."""
+        return [s.observation for s in self.steps]
+
+    def add_step(
+        self,
+        tool_name: str,
+        arguments: dict,
+        observation: dict,
+        model_decision: str = "",
+        duration_ms: float = 0.0,
+        status: str = "success",
+        error: Optional[str] = None,
+        is_retry: bool = False
+    ) -> AgentStep:
         """Ghi nhận một bước thực thi công cụ trong hành trình Agent."""
         self.current_step += 1
         step = AgentStep(
@@ -53,11 +93,21 @@ class StructuredAgentState:
             tool_name=tool_name,
             arguments=arguments,
             observation=observation,
+            model_decision=model_decision,
             duration_ms=round(duration_ms, 2),
-            status=status
+            status=status,
+            error=error,
+            is_retry=is_retry
         )
         self.steps.append(step)
+        if error:
+            self.errors.append(f"[Step {self.current_step}] {error}")
         return step
+
+    def record_retry(self, tool_name: str, reason: str):
+        """Ghi nhận một lượt thử lại khi gặp lỗi có thể phục hồi."""
+        self.retry_count += 1
+        self.errors.append(f"Retry #{self.retry_count} on '{tool_name}': {reason}")
 
     def is_stalled(self, tool_name: str, arguments: dict) -> bool:
         """
@@ -94,11 +144,56 @@ class StructuredAgentState:
 
         return False, ""
 
-    def complete(self, final_response: str, status: str = "success") -> str:
+    def render_tree(self) -> str:
+        """
+        Hiển thị cây thực thi Agent Trace trực quan dạng cây:
+        Task
+         ├─ Model decision
+         ├─ Tool call
+         ├─ Tool result
+         ├─ Error
+         ├─ Retry
+         └─ Final result
+        """
+        lines = [f"📋 Task: {self.goal} (Session: {self.session_id} | Model: {self.model})"]
+        total_steps = len(self.steps)
+
+        for i, s in enumerate(self.steps):
+            is_last_step = (i == total_steps - 1) and not self.final_response
+            step_prefix = " └─" if is_last_step else " ├─"
+            child_prefix = "     " if is_last_step else " │   "
+
+            dec_text = f" Decision: {s.model_decision}" if s.model_decision else ""
+            retry_tag = " [RETRY]" if s.is_retry else ""
+            lines.append(f"{step_prefix} [Step {s.step_index}]{retry_tag}{dec_text}")
+
+            # Tool call
+            args_str = ", ".join(f"{k}={repr(v)}" for k, v in s.arguments.items())
+            if len(args_str) > 80:
+                args_str = args_str[:77] + "..."
+            lines.append(f"{child_prefix}├─ Tool Call: {s.tool_name}({args_str})")
+
+            # Observation summary
+            obs_raw = json.dumps(s.observation, ensure_ascii=False) if isinstance(s.observation, dict) else str(s.observation)
+            obs_preview = obs_raw[:100] + "..." if len(obs_raw) > 100 else obs_raw
+            lines.append(f"{child_prefix}├─ Result ({s.duration_ms}ms, {s.status}): {obs_preview}")
+
+            # Error nếu có
+            if s.error:
+                lines.append(f"{child_prefix}└─ Error: {s.error}")
+
+        if self.final_response:
+            dur_sec = round(self.end_time - self.start_time, 2) if self.end_time > 0 else round(time.time() - self.start_time, 2)
+            lines.append(f" └─ Final Result ({self.final_status}, {dur_sec}s): {self.final_response}")
+
+        return "\n".join(lines)
+
+    def complete(self, final_response: str, status: str = "success", evaluation: Optional[dict] = None) -> str:
         """Đánh dấu phiên làm việc của Agent đã kết thúc và lưu Trace file."""
         self.end_time = time.time()
         self.final_response = final_response
         self.final_status = status
+        self.evaluation = evaluation
         return self.save_trace()
 
     def to_dict(self) -> dict:
@@ -111,12 +206,17 @@ class StructuredAgentState:
             "model": self.model,
             "duration_ms": elapsed_ms,
             "final_status": self.final_status,
+            "completion": self.completion,
             "plan": self.plan,
             "steps_count": len(self.steps),
+            "retry_count": self.retry_count,
             "steps": [asdict(s) for s in self.steps],
+            "tool_history": self.tool_history,
             "budget": asdict(self.budget),
             "errors": self.errors,
-            "final_response": self.final_response
+            "evaluation": self.evaluation,
+            "final_response": self.final_response,
+            "trace_tree": self.render_tree()
         }
 
     def save_trace(self, target_dir: str = LOGS_AGENT_DIR) -> str:

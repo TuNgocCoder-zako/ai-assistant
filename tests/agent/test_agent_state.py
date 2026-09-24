@@ -69,5 +69,30 @@ class TestAgentState(unittest.TestCase):
         self.assertTrue(os.path.exists(trace_path))
         self.assertIn(state.session_id, trace_path)
 
+    def test_render_tree_and_runtime_attributes(self):
+        state = StructuredAgentState(goal="Kiểm tra Spring Boot", model="qwen2.5-coder:7b")
+        state.add_step(
+            tool_name="find_files_or_projects",
+            arguments={"query": "spring-boot"},
+            observation={"found": ["/path/to/project"]},
+            model_decision="Tìm kiếm thư mục dự án",
+            duration_ms=5.4,
+            status="success"
+        )
+        state.record_retry("mvn clean compile", "Network timeout downloading dependency")
+
+        self.assertEqual(len(state.tool_history), 1)
+        self.assertEqual(state.tool_history[0]["tool"], "find_files_or_projects")
+        self.assertEqual(len(state.observations), 1)
+        self.assertEqual(state.retry_count, 1)
+
+        tree = state.render_tree()
+        self.assertIn("Task: Kiểm tra Spring Boot", tree)
+        self.assertIn("Tool Call: find_files_or_projects", tree)
+        self.assertIn("Decision: Tìm kiếm thư mục dự án", tree)
+
+        state.complete("Build hoàn tất", status="success")
+        self.assertTrue(state.completion)
+
 if __name__ == "__main__":
     unittest.main()

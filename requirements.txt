@@ -1,0 +1,8 @@
+ctranslate2>=4.8.0
+edge-tts>=7.2.8
+faster-whisper>=1.2.0
+numpy>=1.26.0
+openwakeword>=0.4.0
+requests>=2.31.0
+scipy>=1.11.0
+sounddevice>=0.5.0

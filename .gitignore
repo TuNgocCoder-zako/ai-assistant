@@ -1,0 +1,34 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+*.venv/
+
+# Backup and temporary files
+*.bak
+*~
+*.swp
+*.swo
+
+# Large model weights / datasets
+*.gguf
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Environment & sensitive configs
+.env
+.env.*
+
+# IDE / Editor settings
+.vscode/
+.idea/
+.DS_Store

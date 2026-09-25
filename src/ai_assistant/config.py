@@ -11,9 +11,16 @@ OVERLAY_QML_PATH = os.path.join(BASE_DIR, "overlay", "VoiceOverlay.qml")
 
 # Cấu hình Ollama LLM
 OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_FAST_MODEL = "qwen2.5:3b"
 DEFAULT_CODER_MODEL = "qwen2.5-coder:7b"
 DEFAULT_REASONING_MODEL = "qwen3:8b"
+
+# Cấu hình Vision đa phương thức (V2.3)
+DEFAULT_VISION_MODEL = "minicpm-v"
+VISION_TIMEOUT = 60                 # Timeout cho vision model (giây)
+VISION_MAX_IMAGE_SIZE = 1280        # Chiều dài tối đa (px) — resize giữ tỷ lệ
+VISION_JPEG_QUALITY = 85            # Chất lượng nén JPEG (1-100)
 
 # Cấu hình giọng đọc & nhận diện giọng nói
 DEFAULT_VOICE = "vi-VN-HoaiMyNeural"  # Nữ nhẹ nhàng

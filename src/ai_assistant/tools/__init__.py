@@ -45,6 +45,7 @@ from ai_assistant.tools.web import (
     open_youtube_search,
     open_google_search,
 )
+from ai_assistant.tools.vision import see_screen
 from ai_assistant.tools.registry import tool_registry
 
 __all__ = [
@@ -89,5 +90,6 @@ __all__ = [
     "open_url",
     "open_youtube_search",
     "open_google_search",
+    "see_screen",
     "tool_registry",
 ]

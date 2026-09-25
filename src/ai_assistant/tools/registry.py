@@ -56,6 +56,12 @@ COMMON_TOOL_ALIASES = {
     "git_status": "get_git_repository_status",
     "docker_ps": "check_docker_containers",
     "system_status": "get_system_status",
+    "screenshot": "see_screen",
+    "view_screen": "see_screen",
+    "look_screen": "see_screen",
+    "observe_screen": "see_screen",
+    "analyze_screen": "see_screen",
+    "screen_capture": "see_screen",
 }
 
 class ToolRegistry:
@@ -137,6 +143,11 @@ class ToolRegistry:
             selected.append("search_and_show_image")
         if any(k in q for k in ["hẹn giờ", "báo thức", "phút", "chuông"]):
             selected.append("manage_timer_and_alarm")
+        if any(k in q for k in ["màn hình", "screen", "đang hiện", "nhìn", "xem màn hình",
+                                 "hiển thị", "giao diện", "screenshot", "chụp màn hình",
+                                 "đang mở gì", "có lỗi gì trên", "nhìn thấy", "quan sát",
+                                 "vision", "phân tích màn hình", "nội dung màn hình"]):
+            selected.append("see_screen")
 
         res = []
         seen = set()

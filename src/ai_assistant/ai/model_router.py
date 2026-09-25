@@ -46,10 +46,20 @@ def resolve_model_roles() -> dict:
     if not reason_m:
         reason_m = coder_m
 
+    # 4. Vision Model (V2.3 — Ưu tiên: minicpm-v → llava → llama3.2-vision → moondream2)
+    vision_m = None
+    for cand in ["minicpm-v:latest", "minicpm-v", "llava:latest", "llava",
+                 "llama3.2-vision:11b", "llama3.2-vision:latest", "moondream:latest", "moondream2"]:
+        if cand in installed:
+            vision_m = cand
+            break
+    # vision_m có thể None nếu chưa pull → see_screen tool sẽ báo lỗi rõ ràng
+
     return {
         "fast": fast_m,
         "coder": coder_m,
-        "reasoning": reason_m
+        "reasoning": reason_m,
+        "vision": vision_m,         # None nếu chưa có model vision
     }
 
 MODEL_ROLES = resolve_model_roles()

@@ -32,6 +32,7 @@ TOOL_PERMISSION_MAP: dict[str, PermissionLevel] = {
     "launch_application": PermissionLevel.SYSTEM_ACTION,
     "focus_hyprland_window": PermissionLevel.SYSTEM_ACTION,
     "manage_timer_and_alarm": PermissionLevel.SYSTEM_ACTION,
+    "see_screen": PermissionLevel.SYSTEM_ACTION,
 
     "check_and_manage_port": PermissionLevel.SENSITIVE_WRITE,
     "close_application": PermissionLevel.SENSITIVE_WRITE,

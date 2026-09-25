@@ -11,9 +11,18 @@ def check_port_status(port: int) -> str:
     """Kiểm tra port mạng xem có tiến trình nào đang chiếm dụng không (hữu ích cho lập trình viên Java/Spring)."""
     try:
         res = subprocess.run(["ss", "-tulpn"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=2)
-        lines = [line for line in res.stdout.splitlines() if f":{port} " in line or f":{port}\t" in line]
-        if lines:
-            match = re.search(r'users:\(\("([^"]+)",pid=(\d+)', lines[0])
+        matched_lines = []
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4:
+                local_addr = parts[3]
+                if local_addr.endswith(f":{port}") or re.search(rf":{port}\b", local_addr):
+                    matched_lines.append(line)
+
+        if matched_lines:
+            target_line = matched_lines[0]
+            # Bắt linh hoạt tiến trình cả khi có dấu ngoặc kép hoặc không
+            match = re.search(r'users:\(\(?["\']?([^,"\')\s]+)["\']?.*?\bpid=(\d+)', target_line)
             if match:
                 proc_name, pid = match.groups()
                 return f"Cổng {port} đang bị tiến trình {proc_name} có PID {pid} chiếm dụng bạn nhé."
@@ -25,10 +34,15 @@ def check_port_status(port: int) -> str:
 def kill_port_process(port: int) -> str:
     """Giải phóng nhanh port bị kẹt (ví dụ: Spring Boot port 8080)."""
     try:
-        subprocess.run(["fuser", "-k", f"{port}/tcp"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3)
-        return f"Đã giải phóng và đóng tất cả tiến trình đang chiếm cổng {port} cho bạn rồi nhé."
-    except Exception:
-        return f"Chưa thể giải phóng cổng {port}."
+        res = subprocess.run(["fuser", "-k", "-n", "tcp", str(port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3)
+        if res.returncode == 0:
+            return f"Đã giải phóng và đóng tất cả tiến trình đang chiếm cổng {port} cho bạn rồi nhé."
+        status_after = check_port_status(port)
+        if "hoàn toàn trống" in status_after:
+            return f"Cổng {port} hiện đã trống và sẵn sàng sử dụng."
+        return f"Không thể giải phóng cổng {port} (có thể tiến trình yêu cầu quyền quản trị sudo hoặc cổng chưa từng mở)."
+    except Exception as e:
+        return f"Chưa thể giải phóng cổng {port}: {e}."
 
 def check_docker_containers() -> str:
     """Kiểm tra danh sách Docker container đang hoạt động."""
@@ -48,7 +62,8 @@ def check_java_version() -> str:
     """Kiểm tra phiên bản Java và JVM hiện tại trên hệ thống."""
     try:
         res = subprocess.run(["java", "-version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=2)
-        first_line = res.stdout.splitlines()[0] if res.stdout else ""
+        lines = res.stdout.splitlines() if res.stdout else []
+        first_line = lines[0].strip() if lines else ""
         if "version" in first_line:
             clean = first_line.replace('"', '').strip()
             return f"Máy tính của bạn đang chạy {clean} tối ưu cho backend bạn nhé."

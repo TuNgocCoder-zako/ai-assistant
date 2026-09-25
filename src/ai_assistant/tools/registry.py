@@ -18,14 +18,7 @@ from ai_assistant.tools import system, apps, dev, web, timer
 from ai_assistant.tools.permission import permission_policy, argument_validator, PermissionLevel, FORBIDDEN_BASH_PATTERNS
 
 # Danh sách các lệnh nguy hiểm bị chặn để bảo vệ hệ điều hành
-FORBIDDEN_COMMAND_PATTERNS = [
-    r"\brm\s+(?:-[a-zA-Z0-9-]+\s+)*(?:/(?:\s|$|\*|\.\.)|/home/\.\./|/etc(?:\s|/|$)|/boot(?:\s|/|$)|/sys(?:\s|/|$)|/dev(?:\s|/|$)|/proc(?:\s|/|$)|/root(?:\s|/|$))", # rm nguy hiểm vào root/system
-    r"\bmkfs\b",                            # Định dạng phân vùng ổ đĩa
-    r"\bdd\s+if=.*of=/dev/(?:sd|nvme|vd)",  # Ghi đè trực tiếp ổ cứng vật lý
-    r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;",# Fork bomb
-    r">\s*/dev/(?:sd|nvme|vd)[a-z0-9]*",   # Chuyển hướng ghi đè raw disk
-    r"\bchmod\s+-R\s+777\s+/(?:\s|$)",      # Phá vỡ phân quyền root
-]
+FORBIDDEN_COMMAND_PATTERNS = FORBIDDEN_BASH_PATTERNS
 
 class Tool:
     def __init__(self, name: str, description: str, func: Callable, parameters: dict):
@@ -259,9 +252,10 @@ tool_registry = ToolRegistry()
 )
 def run_terminal_command(command: str, cwd: str = "") -> dict:
     cmd_clean = command.strip()
+    cmd_normalized = re.sub(r"['\"\\]", "", cmd_clean)
     # Kiểm tra an toàn: ngăn chặn lệnh phá hoại hệ thống
     for pattern in FORBIDDEN_COMMAND_PATTERNS:
-        if re.search(pattern, cmd_clean, re.IGNORECASE):
+        if re.search(pattern, cmd_clean, re.IGNORECASE) or re.search(pattern, cmd_normalized, re.IGNORECASE):
             return {
                 "exit_code": 1,
                 "stdout": "",
@@ -309,22 +303,60 @@ def run_terminal_command(command: str, cwd: str = "") -> dict:
     description="Tìm kiếm thư mục dự án hoặc tệp tin trong hệ thống theo từ khóa (mặc định tìm trong ~/Projects)."
 )
 def find_files_or_projects(query: str = "", search_dir: str = "~/Projects", **kwargs) -> list[str]:
-    target_root = Path(os.path.expanduser(search_dir))
-    if not target_root.exists():
-        target_root = Path.home()
-
     raw_q = query or kwargs.get("search") or kwargs.get("project_name") or kwargs.get("name") or kwargs.get("keyword") or ""
     q_lower = raw_q.lower().strip()
+    if not q_lower:
+        return []
+
+    start_path = os.path.expanduser(search_dir)
+    if not os.path.exists(start_path):
+        start_path = os.path.expanduser("~/Projects")
+    if not os.path.exists(start_path):
+        start_path = os.path.expanduser("~")
+
+    # Danh mục thư mục rác / phụ thuộc khổng lồ cần bỏ qua ngay lập tức
+    ignored_dirs = {
+        ".git", ".cache", ".local", ".var", ".npm", ".cargo", "node_modules",
+        "target", ".idea", ".vscode", "venv", ".venv", "__pycache__", "build",
+        "dist", ".gradle", ".m2", "vendor"
+    }
+
     matches = []
-    
-    # 1. Tìm các thư mục trước (Project directories)
-    for p in target_root.rglob("*"):
-        if any(ignored in p.parts for ignored in [".git", "node_modules", "target", ".idea", "venv", "__pycache__"]):
+    base_depth = start_path.rstrip(os.path.sep).count(os.path.sep)
+    scanned_count = 0
+    max_depth = 3
+    max_scanned = 2500
+
+    for root, dirs, files in os.walk(start_path, followlinks=False):
+        cur_depth = root.count(os.path.sep) - base_depth
+        if cur_depth >= max_depth:
+            dirs.clear()
             continue
-        if q_lower in p.name.lower():
-            matches.append(str(p))
-            if len(matches) >= 8:
-                break
+
+        # Cắt tỉa tại chỗ: ngăn os.walk đào sâu vào các thư mục rác / ẩn
+        dirs[:] = [
+            d for d in dirs
+            if not d.startswith(".") and d.lower() not in ignored_dirs
+        ]
+
+        scanned_count += len(dirs) + len(files)
+        if scanned_count > max_scanned:
+            break
+
+        # 1. Tìm trong tên thư mục (ưu tiên thư mục dự án)
+        for d in dirs:
+            if q_lower in d.lower():
+                matches.append(os.path.join(root, d))
+                if len(matches) >= 8:
+                    return matches
+
+        # 2. Tìm trong tên tệp tin
+        for f in files:
+            if q_lower in f.lower():
+                matches.append(os.path.join(root, f))
+                if len(matches) >= 8:
+                    return matches
+
     return matches
 
 @tool_registry.register(

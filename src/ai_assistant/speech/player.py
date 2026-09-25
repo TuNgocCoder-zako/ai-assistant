@@ -65,6 +65,31 @@ def play_chime(name: str):
         except Exception:
             pass
 
+def reap_process(proc, timeout: float = 1.0):
+    """
+    Thu hồi và dọn sạch tiến trình con (chống rò rỉ Zombie process mpv).
+    Đảm bảo PID được giải phóng hoàn toàn khỏi kernel.
+    """
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            if proc.stdin and not proc.stdin.closed:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+            proc.terminate()
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=timeout)
+        else:
+            proc.poll()
+    except Exception:
+        pass
+
 def stop_current_speech():
     """Cắt lời ngay lập tức: Dừng tiến trình phát âm thanh và dọn sạch hàng đợi câu nói."""
     global current_tts_proc
@@ -74,16 +99,7 @@ def stop_current_speech():
         proc = current_tts_proc
         current_tts_proc = None
 
-    if proc is not None:
-        try:
-            proc.terminate()
-            try:
-                proc.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=1.0)
-        except Exception:
-            pass
+    reap_process(proc, timeout=1.0)
 
     # Xả sạch tts_queue
     while not tts_queue.empty():

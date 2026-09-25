@@ -281,7 +281,9 @@ def close_specific_app(target: str, app_index: dict = None) -> tuple[bool, str]:
         matched_app = match_app(target, app_index)
         if matched_app:
             display_name = matched_app.get("name", display_name)
-            exec_bin = matched_app.get("exec", "").split()[0]
+            exec_raw = matched_app.get("exec", "").strip()
+            exec_parts = exec_raw.split()
+            exec_bin = exec_parts[0] if exec_parts else ""
             if exec_bin:
                 proc_keywords.append(os.path.basename(exec_bin).lower())
             d_id = matched_app.get("desktop_id", "").lower()

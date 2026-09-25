@@ -4,6 +4,7 @@ Phân tích ngôn ngữ tự nhiên và định tuyến phản xạ Fast-Path NL
 
 import re
 import random
+import unicodedata
 import subprocess
 from ai_assistant.config import EXIT_PHRASES, URL_SHORTCUTS
 from ai_assistant.speech.player import stop_current_speech, play_chime
@@ -74,12 +75,15 @@ def is_exit_phrase(text: str) -> bool:
     return False
 
 def clean_user_input(text: str) -> str:
-    """Loại bỏ các từ gọi tên thừa ở đầu câu nếu Whisper nhận diện vào văn bản."""
-    t = text.strip()
-    t = re.sub(r'^(ê\s+)?(này\s+)?(ơi\s+)?(chào\s+)?alexa(\s+ơi)?[\s,\.!\?]+', '', t, flags=re.IGNORECASE).strip()
-    t = re.sub(r'^(ê\s+)?(này\s+)?(ơi\s+)?(chào\s+)?jarvis(\s+ơi)?[\s,\.!\?]+', '', t, flags=re.IGNORECASE).strip()
-    t = re.sub(r'^(à|ừm|ừ|này|ê)[\s,\.!\?]+', '', t, flags=re.IGNORECASE).strip()
-    return t if t else text.strip()
+    """Loại bỏ các từ gọi tên thừa ở đầu câu nếu Whisper nhận diện vào văn bản (chuẩn hóa Unicode NFKC)."""
+    if not text:
+        return ""
+    norm = unicodedata.normalize("NFKC", text).strip()
+    t = re.sub(r'^(?:ê\s+|này\s+|ơi\s+|chào\s+)*alexa(?:\s+ơi)?[\s,\.!\?]+', '', norm, flags=re.IGNORECASE).strip()
+    t = re.sub(r'^(?:ê\s+|này\s+|ơi\s+|chào\s+)*jarvis(?:\s+ơi)?[\s,\.!\?]+', '', t, flags=re.IGNORECASE).strip()
+    t = re.sub(r'^(?:à|ừm|ừ|này|ê)[\s,\.!\?]+', '', t, flags=re.IGNORECASE).strip()
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t if t else norm
 
 def fast_path_nlu(user_text: str, app_index: dict, dry_run: bool = False) -> tuple[bool, str]:
     """
@@ -89,7 +93,11 @@ def fast_path_nlu(user_text: str, app_index: dict, dry_run: bool = False) -> tup
     - Trả về (True, reply_text) nếu xử lý thành công, hoặc (False, "") để chuyển sang Deep-Path LLM.
     - dry_run: Nếu True, chỉ kiểm tra logic và trả về văn bản phản hồi mà KHÔNG chạy lệnh hệ thống thật.
     """
-    t = user_text.lower().strip().rstrip(".!?")
+    if not user_text:
+        return False, ""
+    norm_text = unicodedata.normalize("NFKC", user_text)
+    t = norm_text.lower().strip().rstrip(".!?")
+    t = re.sub(r'\s+', ' ', t)
 
     # 0. Lệnh cắt lời / Dừng khẩn cấp (Barge-in Voice Command)
     if re.search(r"\b(im lặng|dừng lại|dừng nói|thôi im|tắt tiếng đi|im đi)\b", t):

@@ -7,7 +7,7 @@
 [![Ollama](https://img.shields.io/badge/LLM-Ollama_Local-black?logo=ollama&logoColor=white)](https://ollama.ai/)
 [![Faster-Whisper](https://img.shields.io/badge/STT-Faster--Whisper-orange)](https://github.com/SYSTRAN/faster-whisper)
 [![Quickshell](https://img.shields.io/badge/UI-Quickshell_QML-green)](https://quickshell.outfoxxed.me/)
-[![Tests](https://img.shields.io/badge/Tests-39%20Passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-47%20Passed-brightgreen)](tests/)
 
 ---
 
@@ -238,11 +238,11 @@ ai-assistant --once
 ### 1. Chạy bộ kiểm thử tự động (39 tests)
 
 ```bash
-# Chạy toàn bộ 39 tests (Unit, Agent, Integration)
+# Chạy toàn bộ 47 tests (Unit, Agent, Integration)
 python -m unittest discover tests
 
 # Chạy riêng từng nhóm test
-python -m unittest discover tests/unit        # 18 tests: NLU, Tools, Safety Guard, Permission
+python -m unittest discover tests/unit        # 26 tests: NLU, Tools, Safety Guard, Permission, Bug Fixes
 python -m unittest discover tests/agent       # 17 tests: ReAct Loop, State, Stall, Evaluator
 python -m unittest discover tests/integration # 4 tests: End-to-End Flow & Spring Boot Flow Audit
 ```

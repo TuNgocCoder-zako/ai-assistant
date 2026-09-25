@@ -62,6 +62,20 @@ def send_notification(title: str, message: str):
     except Exception:
         pass
 
+def _run_async(coro):
+    """Thực thi an toàn một coroutine bất kể có event loop đang chạy trong thread hay không."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    else:
+        return asyncio.run(coro)
+
 def speak_edge_tts(text: str, voice: str = DEFAULT_VOICE) -> bool:
     """Phát âm thanh bằng Edge-TTS AI truyền trực tiếp vào mpv qua pipe có hỗ trợ cắt lời (Barge-in)."""
     clean = sanitize_text_for_voice(text)
@@ -76,6 +90,8 @@ def speak_edge_tts(text: str, voice: str = DEFAULT_VOICE) -> bool:
         if player.interrupt_speech_event.is_set():
             set_assistant_state("idle")
             return False
+
+        proc = None
         try:
             proc = subprocess.Popen(
                 ["mpv", "--no-video", "--really-quiet", "-"],
@@ -97,34 +113,34 @@ def speak_edge_tts(text: str, voice: str = DEFAULT_VOICE) -> bool:
                         except Exception:
                             break
                 try:
-                    proc.stdin.close()
+                    if proc.stdin and not proc.stdin.closed:
+                        proc.stdin.close()
                 except Exception:
                     pass
 
-            asyncio.run(_stream())
-            proc.wait(timeout=25)
+            _run_async(_stream())
+
+            if not player.interrupt_speech_event.is_set():
+                try:
+                    proc.wait(timeout=25)
+                except subprocess.TimeoutExpired:
+                    player.reap_process(proc, timeout=0.5)
+
             player.set_last_tts_end_time(time.time())
-            with player._tts_proc_lock:
-                player.current_tts_proc = None
-            if player.interrupt_speech_event.is_set():
-                set_assistant_state("idle")
-                return False
-            if proc.returncode == 0:
+            if proc.returncode == 0 and not player.interrupt_speech_event.is_set():
                 set_assistant_state("idle")
                 return True
         except Exception as e:
-            with player._tts_proc_lock:
-                player.current_tts_proc = None
-            player.set_last_tts_end_time(time.time())
-            if player.interrupt_speech_event.is_set():
-                set_assistant_state("idle")
-                return False
-            if attempt == 0:
+            if attempt == 0 and not player.interrupt_speech_event.is_set():
                 time.sleep(0.2)
                 continue
             print(f"⚠️ Lỗi Edge-TTS: {e}")
-            set_assistant_state("idle")
-            return False
+        finally:
+            with player._tts_proc_lock:
+                if player.current_tts_proc is proc:
+                    player.current_tts_proc = None
+            player.reap_process(proc, timeout=0.5)
+
     set_assistant_state("idle")
     return False
 

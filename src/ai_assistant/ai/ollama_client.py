@@ -149,16 +149,13 @@ def query_ollama_streaming(prompt: str, app_index: dict, voice: str = DEFAULT_VO
                     loop.run_until_complete(feed_phrase(item))
             player.tts_queue.task_done()
 
-        if player_proc and player_proc.stdin:
+        if player_proc and player_proc.stdin and not player_proc.stdin.closed:
             try:
                 player_proc.stdin.close()
             except Exception:
                 pass
         if player_proc:
-            try:
-                player_proc.wait(timeout=15)
-            except Exception:
-                pass
+            player.reap_process(player_proc, timeout=1.0)
         loop.close()
 
     worker_thread = threading.Thread(target=tts_worker, daemon=True)
@@ -244,6 +241,8 @@ def query_ollama_streaming(prompt: str, app_index: dict, voice: str = DEFAULT_VO
             player.set_last_tts_end_time(time.time())
             with player._tts_proc_lock:
                 player.current_tts_proc = None
+            if player_proc:
+                player.reap_process(player_proc, timeout=0.5)
             set_assistant_state("idle")
             return err_msg
     except Exception as e:
@@ -253,5 +252,7 @@ def query_ollama_streaming(prompt: str, app_index: dict, voice: str = DEFAULT_VO
         player.set_last_tts_end_time(time.time())
         with player._tts_proc_lock:
             player.current_tts_proc = None
+        if player_proc:
+            player.reap_process(player_proc, timeout=0.5)
         set_assistant_state("idle")
         return err_msg

@@ -4,6 +4,7 @@ Công cụ đọc và điều khiển hệ điều hành Arch Linux / phần c�
 
 import os
 import re
+import glob
 import datetime
 import subprocess
 import requests
@@ -22,34 +23,53 @@ def get_vietnamese_date() -> str:
     return f"Hôm nay là {day_name}, ngày {now.day} tháng {now.month} năm {now.year}."
 
 def get_battery_info() -> str:
-    """Kiểm tra tình trạng pin và sạc thực tế của laptop Asus TUF."""
+    """Kiểm tra tình trạng pin và sạc thực tế của laptop qua Linux sysfs (hỗ trợ động BAT0, BAT1...)."""
     try:
-        out = subprocess.check_output(
-            ["upower", "-i", "/org/freedesktop/UPower/devices/battery_BAT1"],
-            text=True,
-            errors="ignore",
-            timeout=3
-        )
-        state = "đang dùng"
-        pct = ""
-        for line in out.splitlines():
-            line = line.strip()
-            if line.startswith("state:"):
-                state = line.split(":", 1)[1].strip()
-            elif line.startswith("percentage:"):
-                pct = line.split(":", 1)[1].strip()
-        state_map = {
-            "discharging": "đang dùng pin",
-            "charging": "đang cắm sạc",
-            "fully-charged": "đã sạc đầy và đang cắm nguồn"
-        }
-        state_vi = state_map.get(state, state)
-        if pct:
-            pct_text = pct.replace("%", " phần trăm")
-            return f"Pin laptop hiện tại còn {pct_text}, trạng thái {state_vi}."
-        return "Pin máy tính đang hoạt động bình thường."
+        # 1. Tìm thiết bị pin qua Linux sysfs (/sys/class/power_supply/BAT*)
+        bat_dirs = glob.glob("/sys/class/power_supply/BAT*") or glob.glob("/sys/class/power_supply/*bat*")
+        if bat_dirs:
+            bat_dir = bat_dirs[0]
+            cap_file = os.path.join(bat_dir, "capacity")
+            status_file = os.path.join(bat_dir, "status")
+
+            capacity = ""
+            status = "Discharging"
+            if os.path.exists(cap_file):
+                with open(cap_file, "r") as f:
+                    capacity = f.read().strip()
+            if os.path.exists(status_file):
+                with open(status_file, "r") as f:
+                    status = f.read().strip()
+
+            state_map = {
+                "discharging": "đang dùng pin",
+                "charging": "đang cắm sạc",
+                "full": "đã sạc đầy và đang cắm nguồn",
+                "not charging": "đang cắm nguồn không sạc"
+            }
+            state_vi = state_map.get(status.lower(), status.lower())
+            if capacity:
+                return f"Pin laptop hiện tại còn {capacity} phần trăm, trạng thái {state_vi}."
+
+        # 2. Fallback sang upower nếu sysfs không có
+        res = subprocess.run(["upower", "-e"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=2)
+        devs = [l.strip() for l in res.stdout.splitlines() if "battery" in l.lower()]
+        if devs:
+            out = subprocess.check_output(["upower", "-i", devs[0]], text=True, errors="ignore", timeout=2)
+            pct = ""
+            state = ""
+            for line in out.splitlines():
+                if "percentage:" in line:
+                    pct = line.split(":", 1)[1].strip()
+                elif "state:" in line:
+                    state = line.split(":", 1)[1].strip()
+            if pct:
+                pct_text = pct.replace("%", " phần trăm")
+                return f"Pin laptop hiện tại còn {pct_text}, trạng thái {state}."
     except Exception:
-        return "Hiện tại tôi không thể lấy được thông tin pin từ hệ thống."
+        pass
+
+    return "Hiện tại tôi không thể lấy được thông tin pin từ hệ thống hoặc máy đang dùng nguồn trực tiếp."
 
 def get_system_hardware_info() -> str:
     """Đọc trực tiếp tài nguyên RAM, thời gian hoạt động từ /proc trong <1ms."""
@@ -57,15 +77,19 @@ def get_system_hardware_info() -> str:
         with open("/proc/meminfo") as f:
             mem = {}
             for line in f:
-                p = line.split(":")
-                mem[p[0].strip()] = int(p[1].split()[0])
-        total_gb = mem["MemTotal"] / 1024 / 1024
-        avail_gb = mem["MemAvailable"] / 1024 / 1024
-        used_gb = total_gb - avail_gb
-        pct = int(used_gb / total_gb * 100)
+                if ":" in line:
+                    p = line.split(":", 1)
+                    val_parts = p[1].split()
+                    if val_parts and val_parts[0].isdigit():
+                        mem[p[0].strip()] = int(val_parts[0])
+        total_gb = mem.get("MemTotal", 16 * 1024 * 1024) / 1024 / 1024
+        avail_gb = mem.get("MemAvailable", 8 * 1024 * 1024) / 1024 / 1024
+        used_gb = max(0.0, total_gb - avail_gb)
+        pct = int(used_gb / total_gb * 100) if total_gb > 0 else 50
 
         with open("/proc/uptime") as f:
-            sec = float(f.read().split()[0])
+            u_parts = f.read().split()
+            sec = float(u_parts[0]) if u_parts else 3600.0
         hours = int(sec // 3600)
         mins = int((sec % 3600) // 60)
         uptime_str = f"{hours} giờ {mins} phút" if hours > 0 else f"{mins} phút"

@@ -39,7 +39,7 @@ TOOL_PERMISSION_MAP: dict[str, PermissionLevel] = {
     "run_terminal_command": PermissionLevel.TERMINAL_EXEC,
 }
 
-# Các mẫu câu lệnh hủy diệt hệ thống bị chặn tuyệt đối
+# Các mẫu câu lệnh hủy diệt hệ thống hoặc command injection bị chặn tuyệt đối
 FORBIDDEN_BASH_PATTERNS = [
     r"\brm\s+(?:-[a-zA-Z0-9-]+\s+)*(?:/(?:\s|$|\*|\.\.)|/home/\.\./|/etc(?:\s|/|$)|/boot(?:\s|/|$)|/sys(?:\s|/|$)|/dev(?:\s|/|$)|/proc(?:\s|/|$)|/root(?:\s|/|$))",
     r"\bmkfs\b",                            # Format phân vùng ổ đĩa
@@ -49,16 +49,30 @@ FORBIDDEN_BASH_PATTERNS = [
     r"\bchmod\s+-R\s+777\s+/(?:\s|$)",      # Phá vỡ phân quyền hệ điều hành
     r"\bchown\s+-R\s+.*\s+/(?:\s|$)",       # Chiếm quyền sở hữu toàn bộ root
     r"\binit\s+0\b|\bshutdown\b|\breboot\b",# Tự ý tắt hoặc khởi động lại máy đột ngột
+    r"\|\s*(?:sudo\s+)?(?:ba|z|da|k|c)?sh\b", # Pipe nguy hiểm vào shell interpreter (curl ... | bash)
+    r"\bbase64\s+(?:-[a-zA-Z0-9-]*d|--decode)\b.*\|\s*(?:ba|z|da|k|c)?sh\b", # Base64 decode piped to shell
+    r"\b(?:curl|wget)\b.*\|\s*(?:sudo\s+)?(?:ba|z|da|k|c)?sh\b", # Tải script từ xa thực thi trực tiếp
+    r"\beval\s+[\"'\$`]",                   # Dynamic eval execution
 ]
 
 # Danh sách các tệp/thư mục nhạy cảm tuyệt đối không được đọc nội dung trực tiếp
 RESTRICTED_READ_PATHS = [
     "/etc/shadow",
+    "/etc/gshadow",
     "/etc/sudoers",
     "/etc/master.passwd",
-    "id_rsa",
-    "id_ed25519",
-    ".gnupg",
+    "/proc/kcore",
+]
+
+# Các mẫu tên file hoặc thư mục bí mật bị cấm đọc
+RESTRICTED_FILE_PATTERNS = [
+    r"id_[a-zA-Z0-9]+",         # SSH private keys: id_rsa, id_ed25519, id_ecdsa
+    r"\.gnupg\b",               # GPG keys
+    r"\.aws/credentials\b",     # AWS secrets
+    r"\.docker/config\.json\b", # Docker secrets
+    r"\.kube/config\b",         # Kubernetes secrets
+    r"\.env(?:\.[a-zA-Z0-9_-]+)?$", # Environment secrets files (.env, .env.prod)
+    r"\.(?:pem|key|pfx|p12)$",  # SSL / TLS Private Certificates
 ]
 
 class ArgumentValidator:
@@ -79,13 +93,30 @@ class ArgumentValidator:
         for path_key in ["path", "file_path", "target", "search_dir"]:
             if path_key in clean_args and isinstance(clean_args[path_key], str):
                 p_val = clean_args[path_key].strip()
-                # Kiểm tra đọc file nhạy cảm
+
+                # Ngăn chặn tấn công Null Byte Injection
+                if "\0" in p_val:
+                    return False, {}, "Ký tự không hợp lệ trong đường dẫn (null byte detected)"
+
+                # Chuẩn hóa triệt để: giải phóng symlink, dot-dot-slash (..) về real path thực tế
+                real_p = os.path.realpath(os.path.expanduser(p_val))
+
+                # Kiểm tra cấm truy cập file nhạy cảm hệ thống
                 for restricted in RESTRICTED_READ_PATHS:
-                    if restricted in p_val:
+                    if real_p == restricted or real_p.startswith(restricted + "/"):
                         return False, {}, f"Truy cập tệp nhạy cảm bị từ chối: '{restricted}'"
 
-                # Chuẩn hóa đường dẫn
-                clean_args[path_key] = os.path.expanduser(p_val)
+                # Cấm truy cập raw hardware devices & kernel memory
+                if real_p.startswith("/dev/") or real_p.startswith("/proc/kcore"):
+                    return False, {}, "Truy cập thiết bị phần cứng thô hoặc bộ nhớ kernel bị từ chối."
+
+                # Kiểm tra các mẫu secret, private keys, .env
+                for pat in RESTRICTED_FILE_PATTERNS:
+                    if re.search(pat, real_p, re.IGNORECASE):
+                        return False, {}, f"Truy cập tệp nhạy cảm/bí mật bị từ chối (pattern: '{pat}')"
+
+                # Đảm bảo đường dẫn đã chuẩn hóa được lưu lại
+                clean_args[path_key] = real_p
 
         # 2. Kiểm tra giới hạn số cổng (Port)
         if "port" in clean_args:
@@ -156,8 +187,10 @@ class PermissionPolicy:
                 return False, "Chính sách bảo mật: Quyền thực thi lệnh Terminal đang bị vô hiệu hóa.", PermissionLevel.DANGEROUS_BLOCKED
 
             cmd = args.get("command", "")
+            # Chuẩn hóa khử escape / quote obfuscation (vd r\m -rf / hoặc "rm" -rf /)
+            normalized_cmd = re.sub(r"['\"\\]", "", cmd)
             for pattern in FORBIDDEN_BASH_PATTERNS:
-                if re.search(pattern, cmd, re.IGNORECASE):
+                if re.search(pattern, cmd, re.IGNORECASE) or re.search(pattern, normalized_cmd, re.IGNORECASE):
                     return False, f"CHÍNH SÁCH BẢO MẬT TỪ CHỐI: Phát hiện lệnh có nguy cơ phá hoại hệ thống (pattern: {pattern}).", PermissionLevel.DANGEROUS_BLOCKED
 
             return True, "Lệnh terminal đã qua kiểm duyệt an toàn.", level

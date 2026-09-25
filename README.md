@@ -1,5 +1,5 @@
-# 🎙️ Local AI Operating-System Assistant (Alexa V2.2) 🤖⚡
-> **Trợ lý ảo điều khiển hệ điều hành Arch Linux & Hyprland bằng Giọng nói, Phím tắt và Trí tuệ Nhân tạo Cục bộ (Local AI OS Agent).**
+# 🎙️ Local AI Operating-System Assistant (Alexa V2.3) 🤖⚡👁️
+> **Trợ lý ảo điều khiển hệ điều hành Arch Linux & Hyprland bằng Giọng nói, Thị giác Màn hình/Webcam (Multimodal AI), Phím tắt và Trí tuệ Nhân tạo Cục bộ.**
 
 [![Arch Linux](https://img.shields.io/badge/OS-Arch_Linux-1793d1?logo=arch-linux&logoColor=white)](https://archlinux.org/)
 [![Hyprland](https://img.shields.io/badge/WM-Hyprland_v0.56.2-00b4d8?logo=wayland&logoColor=white)](https://hyprland.org/)
@@ -7,24 +7,25 @@
 [![Ollama](https://img.shields.io/badge/LLM-Ollama_Local-black?logo=ollama&logoColor=white)](https://ollama.ai/)
 [![Faster-Whisper](https://img.shields.io/badge/STT-Faster--Whisper-orange)](https://github.com/SYSTRAN/faster-whisper)
 [![Quickshell](https://img.shields.io/badge/UI-Quickshell_QML-green)](https://quickshell.outfoxxed.me/)
-[![Tests](https://img.shields.io/badge/Tests-47%20Passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-66%20Passed-brightgreen)](tests/)
 
 ---
 
 ## 🌟 Giới Thiệu Tổng Quan
 
-**Voice AI Assistant (Alexa V2.2)** không chỉ là một bot đàm thoại thông thường, mà là một **Local AI OS Agent** nằm ngay trên hệ điều hành Arch Linux / Hyprland của bạn. Trợ lý kết hợp giữa khả năng **nhận diện âm thanh thời gian thực**, **phản xạ Fast-Path siêu tốc (Median 0.02ms, P90 < 4ms)**, **suy luận LLM cục bộ (Ollama)** và **bộ công cụ điều khiển hệ thống chuyên sâu**.
+**Voice AI Assistant (Alexa V2.3)** không chỉ là một bot đàm thoại thông thường, mà là một **Local AI OS Agent** nằm ngay trên hệ điều hành Arch Linux / Hyprland của bạn với khả năng **"Nghe - Nhìn - Làm"** toàn diện. Trợ lý kết hợp giữa khả năng **nhận diện âm thanh thời gian thực**, **thị giác máy tính đa phương thức (Vision & Screen Awareness)**, **phản xạ Fast-Path siêu tốc (Median 0.02ms, P90 < 4ms)**, **suy luận LLM cục bộ (Ollama)** và **bộ 18 công cụ điều khiển hệ thống chuyên sâu**.
 
-Kiến trúc **V2.2 ("Governed Agent Core & Multi-layered Governance")** hoàn thiện toàn bộ các tầng quản trị tác tử khắt khe nhất:
-- **Tách biệt rõ ràng UI State & Agent Runtime State:**
-  - `core/ui_state.py`: Chuyên trách trạng thái trực quan hiển thị trên Quickshell Overlay (`idle`, `listening`, `thinking`, `speaking`).
-  - `core/agent_state.py`: Runtime State đầy đủ của bộ não (`goal`, `plan`, `current_step`, `steps`, `tool_history`, `observations`, `errors`, `retry_count`, `completion`).
-- **Cây Vết Thực Thi Phân Cấp (Hierarchical Execution Trace Tree):** Trực quan hóa toàn bộ chu trình hành động dạng cây và lưu vết chi tiết ra file JSON chuẩn hóa (`logs/agent/`).
-- **Phân Tầng Quản Trị Bảo Mật Đa Lớp (Multi-layered Security Governance):**
-  $$\text{LLM} \longrightarrow \text{Tool Registry} \longrightarrow \text{Permission Policy} \longrightarrow \text{Argument Validator} \longrightarrow \text{Executor} \longrightarrow \text{OS}$$
-  Ngăn chặn triệt để Path Traversal, đọc tệp nhạy cảm (`/etc/shadow`, `id_rsa`), tắt tiến trình cốt lõi hệ thống (`systemd`, `hyprland`), hay chạy lệnh phá hoại (`rm -rf /`, `mkfs`, fork bomb).
-- **Hybrid Tool Calling Pipeline:** Tự động kết hợp native tool schema của Ollama với bộ bóc tách cứu trợ đa cú pháp (`_parse_tool_calls_from_text`: JSON markdown, XML `<tool_call>`, CLI flags, python calls), đảm bảo độ ổn định 100% trên mọi mô hình local.
-- **Task Completion Evaluator:** Tự động phát hiện rẽ nhánh theo điều kiện (*"nếu build lỗi thì tìm nguyên nhân"*), phát hiện lỗi công cụ có thể tự sửa để kích hoạt cơ chế Retry thông minh.
+Kiến trúc **V2.3 ("Multimodal Vision & Governed Agent Core")** bổ sung và hoàn thiện:
+- **Thị Giác Máy Tính Đa Phương Thức (Vision & Screen Awareness V2.3):**
+  - **`see_screen`**: Chụp màn hình Wayland native (`grim`) và phân tích tức thì qua mô hình thị giác (`minicpm-v` / `llava`).
+  - **`capture_screen`**: Chụp màn hình lưu thành tệp hình ảnh mà không tốn VRAM LLM.
+  - **`analyze_image`**: Phân tích bất kỳ tệp hình ảnh nào đã có trên ổ cứng.
+  - **`watch_camera`**: Chụp và phân tích khung cảnh từ webcam máy tính (OpenCV / ffmpeg fallback) với cấp phép `SENSITIVE_WRITE`.
+  - **Wayland Native & Hyprland Integration**: Hỗ trợ chụp cửa sổ đang kích hoạt (`active`), vùng tương tác (`slurp`) và Image Caching (MD5 hash + TTL) tối ưu hiệu năng.
+- **Kế Hoạch Thực Thi Tường Minh (Structured Planner):** Tự động bóc tách và duy trì `state.plan` từ LLM, hiển thị cây checklist nhiệm vụ trong Trace Tree.
+- **Bộ Điều Khiển Thử Lại Độc Lập (Dedicated Retry Controller):** Quản lý giới hạn retry từng công cụ, chống vòng lặp vô tận và tự động gợi ý công cụ thay thế.
+- **Hard Execution Deadline Cascade:** Truyền giới hạn thời gian thực tế xuống timeout của từng lời gọi mạng Ollama và công cụ hệ thống.
+- **Chuẩn Hóa Message Role 'tool':** Tuân thủ hoàn toàn đặc tả function calling của Ollama & OpenAI API.
 
 ---
 
@@ -181,8 +182,9 @@ voice-ai/
 │   │   └── memory.py            # Quản lý fact người dùng & ghi chú
 │   │
 │   ├── tools/                   # Bộ công cụ thực thi tác vụ hệ thống
-│   │   ├── registry.py          # UNIVERSAL TOOL REGISTRY (14+ Tools, Schemas & Fuzzy Match)
+│   │   ├── registry.py          # UNIVERSAL TOOL REGISTRY (18 Tools, Schemas & Fuzzy Match)
 │   │   ├── permission.py        # PERMISSION POLICY & ARGUMENT VALIDATOR
+│   │   ├── vision.py            # MULTIMODAL VISION (see_screen, capture_screen, analyze_image, watch_camera)
 │   │   ├── system.py            # Âm lượng, độ sáng, pin, RAM, Wi-Fi, Bluetooth, ASUS
 │   │   ├── apps.py              # Quét .desktop, đóng/mở cửa sổ Hyprland v0.56.2
 │   │   ├── dev.py               # Tiện ích Git, Docker, Java, giải phóng port
@@ -194,9 +196,9 @@ voice-ai/
 │   ├── ai/                      # Lớp suy luận (Model Router, Prompts, Ollama Client)
 │   └── ipc/                     # Giao tiếp liên tiến trình (Unix Socket)
 │
-├── tests/                       # Bộ kiểm thử tự động phân lớp (39 tests)
-│   ├── unit/                    # 18 Unit Tests: NLU, Router, System Tools, Safety, Permission
-│   ├── agent/                   # 17 Agent Tests: ReAct Loop, State, Stall, Trace Tree, Evaluator
+├── tests/                       # Bộ kiểm thử tự động phân lớp (66 tests)
+│   ├── unit/                    # 20 Unit Tests: NLU, Router, System Tools, Safety, Permission, Bugs
+│   ├── agent/                   # 42 Agent Tests: ReAct Loop, State, Stall, Trace Tree, Evaluator, Vision, Retry
 │   └── integration/             # 4 Integration Tests: Fast-Path E2E & Spring Boot Flow Audit
 │
 └── training/                    # Tài liệu & Notebook fine-tune mô hình
@@ -265,7 +267,6 @@ python benchmarks/bench_nlu.py
 
 - [x] **V2.0 — Modular Architecture & Universal Tool Registry:** Tái cấu trúc sạch sẽ, đóng gói package, 14+ công cụ, Fast-Path NLU, Quickshell UI.
 - [x] **V2.1 — The Reliable Agent Core:** Cấu trúc trạng thái, kiểm soát tài nguyên (`AgentBudget`), chặn lặp vô tận (`Stall Detection`), ghi vết minh bạch (`logs/agent/`), benchmark thực tế (<4ms).
-- [x] **V2.2 — Governed Agent Core & Multi-layered Governance:** Tách biệt rõ UI State vs Agent State, Cây vết thực thi (`render_tree`), Phân tầng quản trị (`PermissionPolicy` & `ArgumentValidator`), Đánh giá mục tiêu (`TaskCompletionEvaluator`), Flow Audit Spring Boot.
-- [ ] **V2.3 — Vision & Screen Awareness:** Tích hợp chụp màn hình Wayland (`grim`/`slurp`) và phân tích giao diện người dùng qua mô hình Vision đa phương thức (`llama3.2-vision` / `qwen2.5-vl`).
+- [x] **V2.3 — Multimodal Vision & Screen Awareness:** Tích hợp 4 công cụ thị giác (`see_screen`, `capture_screen`, `analyze_image`, `watch_camera`), Wayland native (`grim`/`slurp`), Webcam (OpenCV/ffmpeg), Image Caching (MD5 hash + TTL), Structured Planner (`state.plan`), Dedicated Retry Controller, Dynamic Deadline Cascade, chuẩn hóa role `tool`.
 - [ ] **V2.4 — Autonomous Computer Use:** Tổng hợp phím bấm và trỏ chuột trên Wayland (`wlrctl` / `ydotool`), thực thi tác vụ đồ họa tự động có vòng lặp kiểm tra trực quan.
 - [ ] **V3.0 — The Local AI Operating System:** Trợ lý chủ động (proactive agent daemon), phân tích ngữ cảnh làm việc liên tục và tương tác thông minh toàn diện.

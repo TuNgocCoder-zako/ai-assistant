@@ -229,6 +229,9 @@ def fast_path_nlu(user_text: str, app_index: dict, dry_run: bool = False) -> tup
             lock_screen()
         return True, "Đang khóa màn hình máy tính cho bạn nhé."
     if re.search(r"\b(chụp màn hình|chụp ảnh màn hình|chụp vùng|chụp lại màn hình|chụp một góc)\b", t):
+        # Nếu có từ khóa phân tích, đọc chữ hoặc suy luận -> Chuyển giao cho Agent Core (Vision)
+        if any(w in t for w in ["và", "xem", "đọc", "phân tích", "báo", "có gì", "lỗi", "giúp", "nhìn", "hiện"]):
+            return False, ""
         mode = "full" if "toàn" in t else "region"
         if not dry_run:
             take_screenshot(mode)

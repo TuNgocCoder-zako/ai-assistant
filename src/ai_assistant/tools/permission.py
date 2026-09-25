@@ -27,15 +27,18 @@ TOOL_PERMISSION_MAP: dict[str, PermissionLevel] = {
     "get_git_repository_status": PermissionLevel.READ_ONLY,
     "search_web_duckduckgo": PermissionLevel.READ_ONLY,
     "search_and_show_image": PermissionLevel.READ_ONLY,
+    "analyze_image": PermissionLevel.READ_ONLY,
 
     "control_system_hardware": PermissionLevel.SYSTEM_ACTION,
     "launch_application": PermissionLevel.SYSTEM_ACTION,
     "focus_hyprland_window": PermissionLevel.SYSTEM_ACTION,
     "manage_timer_and_alarm": PermissionLevel.SYSTEM_ACTION,
     "see_screen": PermissionLevel.SYSTEM_ACTION,
+    "capture_screen": PermissionLevel.SYSTEM_ACTION,
 
     "check_and_manage_port": PermissionLevel.SENSITIVE_WRITE,
     "close_application": PermissionLevel.SENSITIVE_WRITE,
+    "watch_camera": PermissionLevel.SENSITIVE_WRITE,
 
     "run_terminal_command": PermissionLevel.TERMINAL_EXEC,
 }
@@ -91,7 +94,7 @@ class ArgumentValidator:
         clean_args = dict(args)
 
         # 1. Kiểm tra chống Path Traversal và truy cập file nhạy cảm
-        for path_key in ["path", "file_path", "target", "search_dir"]:
+        for path_key in ["path", "file_path", "image_path", "save_path", "target", "search_dir"]:
             if path_key in clean_args and isinstance(clean_args[path_key], str):
                 p_val = clean_args[path_key].strip()
 

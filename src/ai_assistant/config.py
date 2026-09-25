@@ -16,11 +16,16 @@ DEFAULT_FAST_MODEL = "qwen2.5:3b"
 DEFAULT_CODER_MODEL = "qwen2.5-coder:7b"
 DEFAULT_REASONING_MODEL = "qwen3:8b"
 
-# Cấu hình Vision đa phương thức (V2.3)
+# Cấu hình Vision đa phương thức & Webcam (V2.3)
 DEFAULT_VISION_MODEL = "minicpm-v"
 VISION_TIMEOUT = 60                 # Timeout cho vision model (giây)
 VISION_MAX_IMAGE_SIZE = 1280        # Chiều dài tối đa (px) — resize giữ tỷ lệ
 VISION_JPEG_QUALITY = 85            # Chất lượng nén JPEG (1-100)
+WEBCAM_DEVICE_INDEX = 0             # Thiết bị webcam mặc định (/dev/video0)
+WEBCAM_CAPTURE_WIDTH = 640          # Độ phân giải webcam tiêu chuẩn (640x480)
+WEBCAM_CAPTURE_HEIGHT = 480
+VISION_CACHE_TTL_SEC = 15.0         # Thời gian sống bộ nhớ đệm quan sát thị giác (giây)
+SCREENSHOTS_DIR = os.path.expanduser("~/Pictures/Screenshots")
 
 # Cấu hình giọng đọc & nhận diện giọng nói
 DEFAULT_VOICE = "vi-VN-HoaiMyNeural"  # Nữ nhẹ nhàng

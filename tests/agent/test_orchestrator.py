@@ -85,10 +85,90 @@ class TestAgentOrchestrator(unittest.TestCase):
         self.assertTrue(agent_orchestrator.is_complex_request("Tắt nhạc và sau đó giảm độ sáng màn hình"))
         self.assertTrue(agent_orchestrator.is_complex_request("Nếu pin dưới 20% thì bật chế độ tiết kiệm pin"))
 
+        # Các câu lệnh thị giác / Vision & Screen Awareness (V2.3)
+        self.assertTrue(agent_orchestrator.is_complex_request("Đang hiện gì trên màn hình?"))
+        self.assertTrue(agent_orchestrator.is_complex_request("Xem màn hình đọc lỗi giúp tôi"))
+        self.assertTrue(agent_orchestrator.is_complex_request("Nhìn qua webcam xem có ai ở đây không"))
+        self.assertTrue(agent_orchestrator.is_complex_request("Chụp màn hình và phân tích giao diện"))
+
         # Các câu hỏi đơn giản / đàm thoại thông thường
         self.assertFalse(agent_orchestrator.is_complex_request("Thời tiết Hà Nội hôm nay thế nào?"))
         self.assertFalse(agent_orchestrator.is_complex_request("Bạn là ai?"))
         self.assertFalse(agent_orchestrator.is_complex_request("Giải thích cho tôi về JVM Memory Model"))
 
+    def test_extract_plan_from_llm(self):
+        # 1. Trích xuất từ plan lồng trong arguments
+        tool_call_with_plan = [{
+            "function": {
+                "name": "check_and_manage_port",
+                "arguments": {"port": 8080, "plan": ["1. Kiểm tra port 8080", "2. Xử lý process chiếm dụng"]}
+            }
+        }]
+        plan1 = agent_orchestrator._extract_plan_from_llm("", tool_call_with_plan)
+        self.assertEqual(len(plan1), 2)
+        self.assertIn("1. Kiểm tra port 8080", plan1)
+
+        # 2. Trích xuất từ thẻ XML <plan>
+        xml_content = "<plan>\n1. Tìm kiếm dự án voice-ai\n2. Đọc file README.md\n3. Báo cáo kết quả\n</plan>"
+        plan2 = agent_orchestrator._extract_plan_from_llm(xml_content, [])
+        self.assertEqual(len(plan2), 3)
+        self.assertIn("Tìm kiếm dự án voice-ai", plan2[0])
+
+        # 3. Trích xuất từ JSON block
+        json_content = '```json\n{"plan": ["Bước 1", "Bước 2"], "tool": "launch_application", "arguments": {"app_name": "code"}}\n```'
+        plan3 = agent_orchestrator._extract_plan_from_llm(json_content, [])
+        self.assertEqual(len(plan3), 2)
+        self.assertEqual(plan3, ["Bước 1", "Bước 2"])
+
+    def test_retry_controller(self):
+        from ai_assistant.core.evaluator import retry_controller
+        retry_controller.reset()
+
+        # Cho phép thử lại
+        can, _ = retry_controller.can_retry("run_terminal_command", "npm build failed")
+        self.assertTrue(can)
+
+        # Ghi nhận lần 1, lần 2
+        retry_controller.record_retry("run_terminal_command")
+        retry_controller.record_retry("run_terminal_command")
+
+        # Quá giới hạn retry per tool (2 lần)
+        can_3, reason = retry_controller.can_retry("run_terminal_command", "npm build failed")
+        self.assertFalse(can_3)
+        self.assertIn("vượt quá giới hạn", reason)
+
+        # Lỗi bảo mật không được retry
+        can_sec, sec_reason = retry_controller.can_retry("other_tool", "CHÍNH SÁCH BẢO MẬT")
+        self.assertFalse(can_sec)
+        self.assertIn("bảo mật", sec_reason)
+
+        # Gợi ý công cụ thay thế
+        alt = retry_controller.get_alternative_suggestion("check_and_manage_port")
+        self.assertIn("fuser", alt)
+
+    def test_state_plan_and_visual_observation(self):
+        from ai_assistant.core.agent_state import StructuredAgentState
+        state = StructuredAgentState(goal="Nhìn màn hình và tìm lỗi", model="qwen2.5:3b")
+
+        # Cập nhật plan
+        state.set_plan(["Bước 1: Chụp màn hình", "Bước 2: Phân tích lỗi"])
+        self.assertEqual(len(state.plan), 2)
+
+        # Ghi nhận visual observation
+        state.record_visual_observation({"result": "Cửa sổ Terminal đang hiện lỗi Python SyntaxError"})
+        self.assertIsNotNone(state.last_visual_observation)
+        self.assertIn("SyntaxError", state.last_visual_observation["result"])
+
+        # Kiểm tra xuất dict và render tree
+        d = state.to_dict()
+        self.assertEqual(len(d["plan"]), 2)
+        self.assertIsNotNone(d["last_visual_observation"])
+
+        tree = state.render_tree()
+        self.assertIn("Plan:", tree)
+        self.assertIn("Chụp màn hình", tree)
+
+
 if __name__ == "__main__":
     unittest.main()
+

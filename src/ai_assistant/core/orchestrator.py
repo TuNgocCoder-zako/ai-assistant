@@ -13,7 +13,7 @@ from typing import Optional
 from ai_assistant.config import OLLAMA_URL, DEFAULT_VOICE
 from ai_assistant.core.state import set_assistant_state
 from ai_assistant.core.agent_state import StructuredAgentState, AgentBudget
-from ai_assistant.core.evaluator import task_evaluator
+from ai_assistant.core.evaluator import task_evaluator, retry_controller
 from ai_assistant.ai.model_router import route_task, MODEL_ROLES
 from ai_assistant.tools.registry import tool_registry
 from ai_assistant.speech.tts import speak, sanitize_text_for_voice
@@ -140,14 +140,71 @@ class AgentOrchestrator:
 
         return results
 
+    def _extract_plan_from_llm(self, content: str, tool_calls: list) -> list[str]:
+        """Trích xuất danh sách các bước kế hoạch từ phản hồi của LLM (Structured Planner)."""
+        plan_steps = []
+        if not content and not tool_calls:
+            return plan_steps
+
+        # 1. Trích xuất từ plan/steps lồng trong arguments hoặc tool call data
+        for call in tool_calls:
+            fn = call.get("function", {})
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {}
+            if isinstance(args, dict):
+                p = args.get("plan") or args.get("steps")
+                if isinstance(p, list) and len(p) > 0:
+                    return [str(s).strip() for s in p if str(s).strip()]
+
+        # 2. Thẻ XML <plan> ... </plan>
+        plan_tag_match = re.search(r"<plan>(.*?)</plan>", content, re.DOTALL | re.IGNORECASE)
+        if plan_tag_match:
+            lines = [l.strip() for l in plan_tag_match.group(1).splitlines() if l.strip()]
+            cleaned = [re.sub(r"^(?:\d+[\.\)]\s*|-\s*)", "", l).strip() for l in lines]
+            return [c for c in cleaned if c]
+
+        # 3. JSON block có chứa trường "plan" hoặc "steps"
+        json_blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+        for b in json_blocks:
+            try:
+                data = json.loads(b.strip())
+                p = data.get("plan") or data.get("steps")
+                if isinstance(p, list) and len(p) > 0:
+                    return [str(s).strip() for s in p if str(s).strip()]
+            except Exception:
+                pass
+
+        # 4. Numbered list trong suy luận (1. ... 2. ...)
+        numbered = re.findall(r"(?:^|\n)\s*(\d+[\.\)]\s*[^\n]+)", content)
+        if len(numbered) >= 2:
+            cleaned = [re.sub(r"^\d+[\.\)]\s*", "", l).strip() for l in numbered]
+            return [c for c in cleaned if c]
+
+        return plan_steps
+
     def is_complex_request(self, text: str) -> bool:
         """
         Nhận diện xem câu lệnh có phải là tác vụ phức tạp/đa bước cần kích hoạt Agent Loop không:
         - Chứa mệnh đề điều kiện: 'nếu', 'thì', 'xem có ... không', 'nếu lỗi'.
         - Chứa chuỗi hành động tuần tự: 'và sau đó', 'rồi', 'tiếp theo', 'sau đó'.
         - Chứa các yêu cầu kiểm tra + phân tích: 'kiểm tra ... và báo', 'build ... tìm nguyên nhân', 'tại sao lại lỗi'.
+        - Chứa các yêu cầu thị giác / quan sát màn hình / webcam (Vision V2.3).
         """
         t = text.lower().strip()
+
+        # Từ khóa Vision & Screen Awareness (V2.3) -> Chuyển trực tiếp sang Agent Loop
+        vision_intent_keywords = [
+            "màn hình", "screen", "đang hiện", "đang mở gì", "nhìn màn hình",
+            "xem màn hình", "chụp màn hình", "nhìn thấy gì", "giao diện",
+            "đọc nội dung", "có lỗi gì trên", "webcam", "camera", "nhìn qua camera",
+            "quay camera", "bật camera"
+        ]
+        if any(vk in t for vk in vision_intent_keywords):
+            return True
 
         # Từ khóa điều kiện và rẽ nhánh
         conditional_keywords = [
@@ -205,7 +262,11 @@ CÁC CÔNG CỤ KHẢ DỤNG CHO TÁC VỤ NÀY:
 {tools_desc}
 
 QUY TRÌNH BẮT BUỘC:
-1. Khi cần thực hiện tác vụ, hãy xuất DUY NHẤT một khối JSON theo mẫu (tuyệt đối không nói 'Tôi sẽ...', không giải thích trước khi gọi):
+1. Khi cần thực hiện tác vụ phức tạp nhiều bước, bạn có thể thiết lập kế hoạch hành động trong trường "plan":
+```json
+{{"plan": ["1. Bước một", "2. Bước hai"], "tool": "<tên_công_cụ>", "arguments": {{...}}}}
+```
+2. Nếu là tác vụ đơn giản hoặc bước tiếp theo:
 ```json
 {{"tool": "<tên_công_cụ>", "arguments": {{...}}}}
 ```
@@ -215,6 +276,11 @@ VÍ DỤ GỌI CÔNG CỤ:
   Trợ lý:
 ```json
 {{"tool": "check_and_manage_port", "arguments": {{"port": 8080}}}}
+```
+- Người dùng: "Đang mở gì trên màn hình?"
+  Trợ lý:
+```json
+{{"tool": "see_screen", "arguments": {{"query": "đang mở ứng dụng gì"}}}}
 ```
 - Người dùng: "Tìm dự án voice-ai"
   Trợ lý:
@@ -232,8 +298,8 @@ VÍ DỤ GỌI CÔNG CỤ:
 {{"tool": "run_terminal_command", "arguments": {{"command": "git status"}}}}
 ```
 
-2. Sau khi nhận được kết quả quan sát, nếu cần làm tiếp thì gọi công cụ kế tiếp.
-3. Khi đã hoàn thành hoặc có kết luận: trả lời người dùng bằng 1-2 câu tiếng Việt tự nhiên súc tích (tuyệt đối không dùng markdown, gạch đầu dòng hay json).
+3. Sau khi nhận được kết quả quan sát, nếu cần làm tiếp thì gọi công cụ kế tiếp.
+4. Khi đã hoàn thành hoặc có kết luận: trả lời người dùng bằng 1-2 câu tiếng Việt tự nhiên súc tích (tuyệt đối không dùng markdown, gạch đầu dòng hay json).
 """
 
         messages = [
@@ -243,6 +309,7 @@ VÍ DỤ GỌI CÔNG CỤ:
 
         step = 0
         final_answer = ""
+        retry_controller.reset()
 
         while step < actual_budget.max_steps:
             # Kiểm tra Agent Budget (timeout, steps, tool calls)
@@ -256,6 +323,11 @@ VÍ DỤ GỌI CÔNG CỤ:
             step += 1
             print(f"\n🔄 [Agent Loop - Bước {step}/{actual_budget.max_steps}] Đang suy luận bước đi tiếp theo...")
 
+            # Hard Deadline Cascade: Tính toán thời gian timeout thực tế còn lại cho LLM
+            elapsed_sec = time.time() - state.start_time
+            remaining_time = max(3.0, actual_budget.max_runtime_sec - elapsed_sec)
+            llm_timeout = min(remaining_time, 60.0)
+
             payload = {
                 "model": active_model,
                 "messages": messages,
@@ -268,7 +340,7 @@ VÍ DỤ GỌI CÔNG CỤ:
             }
 
             try:
-                resp = requests.post(OLLAMA_URL, json=payload, timeout=60)
+                resp = requests.post(OLLAMA_URL, json=payload, timeout=llm_timeout)
                 if resp.status_code != 200:
                     err = f"Lỗi gọi Ollama: HTTP {resp.status_code}"
                     print(f"⚠️ {err}")
@@ -292,7 +364,20 @@ VÍ DỤ GỌI CÔNG CỤ:
 
                 # 1. Nếu mô hình yêu cầu gọi công cụ (ACT)
                 if tool_calls:
-                    messages.append({"role": "assistant", "content": content})
+                    # Trích xuất và cập nhật kế hoạch từ LLM nếu chưa có (Structured Planner)
+                    if not state.plan:
+                        extracted_plan = self._extract_plan_from_llm(content, tool_calls)
+                        if extracted_plan:
+                            state.set_plan(extracted_plan)
+                            print(f"🗺️ [Structured Planner] Đã thiết lập kế hoạch {len(extracted_plan)} bước:")
+                            for p_i, p_s in enumerate(extracted_plan, 1):
+                                print(f"    {p_i}. {p_s}")
+
+                    # Lưu assistant message vào lịch sử hội thoại (giữ tool_calls nếu có)
+                    if native_calls and len(native_calls) > 0:
+                        messages.append({"role": "assistant", "content": content, "tool_calls": native_calls})
+                    else:
+                        messages.append({"role": "assistant", "content": content})
 
                     # Trích xuất phần giải thích / suy luận của mô hình trước khi gọi tool
                     decision_thought = ""
@@ -334,6 +419,10 @@ VÍ DỤ GỌI CÔNG CỤ:
                         exec_result = self.registry.execute(t_name, t_args)
                         t_dur = (time.time() - t_start) * 1000
 
+                        # Ghi nhận trạng thái thị giác vào State nếu là vision tool (Visual State V2.3)
+                        if t_name in ["see_screen", "capture_screen", "analyze_image", "watch_camera"]:
+                            state.record_visual_observation(exec_result)
+
                         # Đánh giá hoàn thành mục tiêu & phân tích lỗi qua TaskCompletionEvaluator
                         eval_res = task_evaluator.evaluate_step(
                             goal=prompt,
@@ -344,8 +433,16 @@ VÍ DỤ GỌI CÔNG CỤ:
                             max_steps=actual_budget.max_steps
                         )
 
+                        is_retry_step = False
                         if eval_res.should_retry:
-                            state.record_retry(t_name, eval_res.reason)
+                            can_retry, retry_reason = retry_controller.can_retry(t_name, str(exec_result.get("error", "")))
+                            if can_retry:
+                                retry_controller.record_retry(t_name)
+                                state.record_retry(t_name, eval_res.reason)
+                                is_retry_step = True
+                            else:
+                                print(f"⚠️ [Retry Controller] {retry_reason}")
+                                state.errors.append(retry_reason)
 
                         # Ghi nhận vào StructuredAgentState
                         state.add_step(
@@ -356,24 +453,31 @@ VÍ DỤ GỌI CÔNG CỤ:
                             duration_ms=t_dur,
                             status="success" if exec_result.get("success") else "failed",
                             error=exec_result.get("error") if not exec_result.get("success") else None,
-                            is_retry=eval_res.should_retry
+                            is_retry=is_retry_step
                         )
 
                         obs_str = json.dumps(exec_result, ensure_ascii=False)
                         obs_preview = obs_str[:160] + "..." if len(obs_str) > 160 else obs_str
                         print(f"👁️ [Observe] Kết quả ({t_dur:.1f}ms): {obs_preview}")
 
-                        # Gửi phản hồi quan sát (OBSERVE) cùng gợi ý điều phối (nếu có) trở lại cho LLM
+                        # Gửi phản hồi quan sát (OBSERVE) cùng gợi ý điều phối (nếu có)
                         obs_feedback = f"[Kết quả quan sát công cụ {t_name}]: {obs_str}"
                         if eval_res.suggested_feedback:
                             obs_feedback += f"\n[Gợi ý điều phối]: {eval_res.suggested_feedback}"
 
+                        # Gợi ý công cụ thay thế nếu có lỗi từ RetryController
+                        alt_tool = retry_controller.get_alternative_suggestion(t_name)
+                        if not exec_result.get("success") and alt_tool:
+                            obs_feedback += f"\n[Công cụ thay thế đề xuất]: Bạn có thể cân nhắc dùng '{alt_tool}'."
+
+                        # Gửi kết quả tool quan sát với vai trò 'tool' chuẩn API function calling
                         messages.append({
-                            "role": "user",
+                            "role": "tool",
+                            "name": t_name,
                             "content": obs_feedback
                         })
 
-                        # Nếu mục tiêu điều kiện đã thỏa mãn hoàn toàn (ví dụ: build thành công, không cần tìm lỗi)
+                        # Nếu mục tiêu điều kiện đã thỏa mãn hoàn toàn
                         if eval_res.is_goal_met and not eval_res.should_continue:
                             print(f"🎯 [Evaluator] Mục tiêu đã được thỏa mãn: {eval_res.reason}")
                             break
@@ -406,6 +510,10 @@ VÍ DỤ GỌI CÔNG CỤ:
                 "content": "Hãy tóm tắt ngắn gọn kết quả của toàn bộ các bước vừa thực hiện trong 1 đến 2 câu tiếng Việt để nói cho tôi biết."
             })
             try:
+                elapsed_sec = time.time() - state.start_time
+                remaining_time = max(3.0, actual_budget.max_runtime_sec - elapsed_sec)
+                final_timeout = min(remaining_time, 30.0)
+
                 final_req = requests.post(
                     OLLAMA_URL,
                     json={
@@ -414,7 +522,7 @@ VÍ DỤ GỌI CÔNG CỤ:
                         "stream": False,
                         "options": {"temperature": 0.3, "num_predict": 100}
                     },
-                    timeout=30
+                    timeout=final_timeout
                 )
                 if final_req.status_code == 200:
                     ans = final_req.json().get("message", {}).get("content", "").strip()

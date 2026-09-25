@@ -50,6 +50,16 @@ class StructuredAgentState:
     errors: list[str] = field(default_factory=list)
     retry_count: int = 0
     evaluation: Optional[dict] = None
+    last_visual_observation: Optional[dict] = None  # Quan sát thị giác gần nhất (V2.3 Vision State)
+
+    def set_plan(self, plan: list[str]):
+        """Cập nhật kế hoạch thực thi tường minh được sinh từ LLM."""
+        if isinstance(plan, list):
+            self.plan = [str(step).strip() for step in plan if str(step).strip()]
+
+    def record_visual_observation(self, observation: dict):
+        """Ghi nhận quan sát thị giác (screenshot / webcam / image) vào state."""
+        self.last_visual_observation = observation
 
     @property
     def completion(self) -> bool:
@@ -156,6 +166,11 @@ class StructuredAgentState:
          └─ Final result
         """
         lines = [f"📋 Task: {self.goal} (Session: {self.session_id} | Model: {self.model})"]
+        if self.plan:
+            lines.append(" ├─ 🗺️ Plan:")
+            for p_idx, p_step in enumerate(self.plan, 1):
+                lines.append(f" │    {p_idx}. {p_step}")
+
         total_steps = len(self.steps)
 
         for i, s in enumerate(self.steps):
@@ -215,6 +230,7 @@ class StructuredAgentState:
             "budget": asdict(self.budget),
             "errors": self.errors,
             "evaluation": self.evaluation,
+            "last_visual_observation": self.last_visual_observation,
             "final_response": self.final_response,
             "trace_tree": self.render_tree()
         }

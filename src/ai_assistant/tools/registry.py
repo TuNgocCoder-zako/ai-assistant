@@ -62,6 +62,22 @@ COMMON_TOOL_ALIASES = {
     "observe_screen": "see_screen",
     "analyze_screen": "see_screen",
     "screen_capture": "see_screen",
+
+    # capture_screen aliases
+    "save_screenshot": "capture_screen",
+    "screenshot_to_file": "capture_screen",
+    "take_screen_capture": "capture_screen",
+
+    # analyze_image aliases
+    "read_image": "analyze_image",
+    "inspect_image": "analyze_image",
+    "describe_image": "analyze_image",
+
+    # watch_camera aliases
+    "look_webcam": "watch_camera",
+    "capture_camera": "watch_camera",
+    "check_webcam": "watch_camera",
+    "view_camera": "watch_camera",
 }
 
 class ToolRegistry:
@@ -143,6 +159,13 @@ class ToolRegistry:
             selected.append("search_and_show_image")
         if any(k in q for k in ["hẹn giờ", "báo thức", "phút", "chuông"]):
             selected.append("manage_timer_and_alarm")
+        # Vision & Screen Awareness (V2.3)
+        if any(k in q for k in ["webcam", "camera", "nhìn tôi", "trước mặt", "nhìn qua camera", "quay camera", "bật camera"]):
+            selected.append("watch_camera")
+        if any(k in q for k in ["phân tích ảnh", "đọc ảnh", "xem ảnh này", "file ảnh", "bức ảnh này", "ảnh có sẵn", "ảnh trên đĩa"]):
+            selected.append("analyze_image")
+        if any(k in q for k in ["lưu ảnh màn hình", "lưu screenshot", "save screenshot", "chụp lại màn hình và lưu", "chụp màn hình vào file", "chụp ảnh lưu"]):
+            selected.append("capture_screen")
         if any(k in q for k in ["màn hình", "screen", "đang hiện", "nhìn", "xem màn hình",
                                  "hiển thị", "giao diện", "screenshot", "chụp màn hình",
                                  "đang mở gì", "có lỗi gì trên", "nhìn thấy", "quan sát",
@@ -225,6 +248,21 @@ class ToolRegistry:
                         for a in ["act", "mode", "operation"]:
                             if a in arguments:
                                 filtered_args["action"] = arguments[a]
+                                break
+                    elif target_param == "image_path":
+                        for a in ["path", "file_path", "image", "img", "file", "target"]:
+                            if a in arguments:
+                                filtered_args["image_path"] = arguments[a]
+                                break
+                    elif target_param == "save_path":
+                        for a in ["path", "file_path", "output", "output_path", "target"]:
+                            if a in arguments:
+                                filtered_args["save_path"] = arguments[a]
+                                break
+                    elif target_param == "region":
+                        for a in ["area", "box", "zone", "coordinates", "vung"]:
+                            if a in arguments:
+                                filtered_args["region"] = arguments[a]
                                 break
 
             # 3. Tầng kiểm tra & chuẩn hóa tham số (Argument Validator)

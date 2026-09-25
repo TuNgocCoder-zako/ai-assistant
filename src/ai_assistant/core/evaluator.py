@@ -97,3 +97,60 @@ class TaskCompletionEvaluator:
 
 # Instance toàn cục
 task_evaluator = TaskCompletionEvaluator()
+
+
+class RetryController:
+    """
+    Bộ điều khiển thử lại độc lập (Dedicated Retry Controller - V2.3).
+    Quản lý chính sách thử lại (Retry Policy), giới hạn số lần retry theo từng công cụ,
+    tính toán backoff và đề xuất công cụ thay thế.
+    """
+    def __init__(self, max_retries_per_tool: int = 2, max_total_retries: int = 4):
+        self.max_retries_per_tool = max_retries_per_tool
+        self.max_total_retries = max_total_retries
+        self.tool_retry_counts: dict[str, int] = {}
+        self.total_retries: int = 0
+
+    def reset(self):
+        """Khởi tạo lại trạng thái cho phiên làm việc mới."""
+        self.tool_retry_counts.clear()
+        self.total_retries = 0
+
+    def can_retry(self, tool_name: str, error_message: str = "") -> Tuple[bool, str]:
+        """
+        Xác định xem công cụ có được phép thử lại không.
+        """
+        # Kiểm tra nếu lỗi do phân quyền hoặc vi phạm an toàn -> tuyệt đối không retry
+        if any(w in error_message for w in ["CHÍNH SÁCH BẢO MẬT", "Từ chối quyền", "bị từ chối", "DANGEROUS_BLOCKED"]):
+            return False, "Hành động bị chặn bởi chính sách bảo mật, không cho phép thử lại."
+
+        tool_count = self.tool_retry_counts.get(tool_name, 0)
+        if tool_count >= self.max_retries_per_tool:
+            return False, f"Công cụ '{tool_name}' đã vượt quá giới hạn thử lại ({tool_count}/{self.max_retries_per_tool})."
+
+        if self.total_retries >= self.max_total_retries:
+            return False, f"Đã đạt giới hạn thử lại tổng cộng của phiên ({self.total_retries}/{self.max_total_retries})."
+
+        return True, ""
+
+    def record_retry(self, tool_name: str) -> int:
+        """Ghi nhận một lượt thử lại cho công cụ cụ thể."""
+        self.tool_retry_counts[tool_name] = self.tool_retry_counts.get(tool_name, 0) + 1
+        self.total_retries += 1
+        return self.tool_retry_counts[tool_name]
+
+    def get_alternative_suggestion(self, tool_name: str) -> Optional[str]:
+        """Gợi ý công cụ thay thế phù hợp khi công cụ hiện tại thất bại nhiều lần."""
+        alternatives = {
+            "see_screen": "capture_screen hoặc get_hyprland_active_window",
+            "check_and_manage_port": "run_terminal_command (fuser / ss / netstat)",
+            "find_files_or_projects": "run_terminal_command (find / fd)",
+            "launch_application": "run_terminal_command (nohup <app> &)",
+            "watch_camera": "see_screen hoặc kiểm tra thiết bị /dev/video0"
+        }
+        return alternatives.get(tool_name)
+
+
+# Instance toàn cục RetryController
+retry_controller = RetryController()
+

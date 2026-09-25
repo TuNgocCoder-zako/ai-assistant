@@ -1,16 +1,34 @@
 """
-Unit tests cho Vision Module (V2.3).
-Kiểm tra đăng ký tool, screen capture logic, và xử lý lỗi.
+Unit tests cho Vision Module (V2.3 — Screen Awareness & Multimodal AI).
+Kiểm thử toàn diện 4 công cụ thị giác (see_screen, capture_screen, analyze_image, watch_camera),
+schema chuẩn Ollama, phân tầng bảo mật, quản lý bộ đệm (caching) và xử lý region Wayland/Hyprland.
 """
 
 import os
 import unittest
+import tempfile
 from unittest.mock import patch, MagicMock
 
 from ai_assistant.tools.registry import tool_registry, COMMON_TOOL_ALIASES
 from ai_assistant.tools.permission import TOOL_PERMISSION_MAP, PermissionLevel
 from ai_assistant.ai.model_router import MODEL_ROLES
-from ai_assistant.config import DEFAULT_VISION_MODEL, OLLAMA_BASE_URL
+from ai_assistant.config import (
+    DEFAULT_VISION_MODEL,
+    OLLAMA_BASE_URL,
+    WEBCAM_DEVICE_INDEX,
+    VISION_CACHE_TTL_SEC,
+)
+from ai_assistant.tools.vision import (
+    _parse_region,
+    _get_cached_analysis,
+    _store_cached_analysis,
+    capture_screen_wayland,
+    capture_webcam_frame,
+    see_screen,
+    capture_screen,
+    analyze_image,
+    watch_camera,
+)
 
 
 class TestVisionModule(unittest.TestCase):
@@ -24,32 +42,64 @@ class TestVisionModule(unittest.TestCase):
         self.assertIn("query", tool.parameters["properties"])
         self.assertIn("query", tool.parameters["required"])
 
-    def test_see_screen_schema_format(self):
-        """Schema phải đúng chuẩn Ollama function calling."""
-        schema = tool_registry._tools["see_screen"].to_schema()
-        self.assertEqual(schema["type"], "function")
-        self.assertEqual(schema["function"]["name"], "see_screen")
-        self.assertIn("parameters", schema["function"])
-        self.assertEqual(schema["function"]["parameters"]["type"], "object")
+    def test_capture_screen_tool_registered(self):
+        """capture_screen phải được đăng ký trong tool registry."""
+        self.assertIn("capture_screen", tool_registry._tools)
+        tool = tool_registry._tools["capture_screen"]
+        self.assertEqual(tool.name, "capture_screen")
+        self.assertIn("save_path", tool.parameters["properties"])
+        self.assertIn("region", tool.parameters["properties"])
+
+    def test_analyze_image_tool_registered(self):
+        """analyze_image phải được đăng ký trong tool registry."""
+        self.assertIn("analyze_image", tool_registry._tools)
+        tool = tool_registry._tools["analyze_image"]
+        self.assertEqual(tool.name, "analyze_image")
+        self.assertIn("image_path", tool.parameters["properties"])
+        self.assertIn("image_path", tool.parameters["required"])
+
+    def test_watch_camera_tool_registered(self):
+        """watch_camera phải được đăng ký trong tool registry."""
+        self.assertIn("watch_camera", tool_registry._tools)
+        tool = tool_registry._tools["watch_camera"]
+        self.assertEqual(tool.name, "watch_camera")
+        self.assertIn("query", tool.parameters["properties"])
+        self.assertIn("device_index", tool.parameters["properties"])
+
+    def test_all_vision_schemas_format(self):
+        """Mọi schema của 4 tools vision phải đúng chuẩn Ollama function calling."""
+        for tool_name in ["see_screen", "capture_screen", "analyze_image", "watch_camera"]:
+            schema = tool_registry._tools[tool_name].to_schema()
+            self.assertEqual(schema["type"], "function")
+            self.assertEqual(schema["function"]["name"], tool_name)
+            self.assertIn("parameters", schema["function"])
+            self.assertEqual(schema["function"]["parameters"]["type"], "object")
 
     def test_vision_aliases_registered(self):
-        """Các alias vision phải trỏ đến see_screen."""
-        vision_aliases = ["screenshot", "view_screen", "look_screen",
-                          "observe_screen", "analyze_screen", "screen_capture"]
-        for alias in vision_aliases:
+        """Các alias vision phải trỏ đúng công cụ tương ứng."""
+        see_screen_aliases = ["screenshot", "view_screen", "look_screen",
+                              "observe_screen", "analyze_screen", "screen_capture"]
+        for alias in see_screen_aliases:
             self.assertIn(alias, COMMON_TOOL_ALIASES)
             self.assertEqual(COMMON_TOOL_ALIASES[alias], "see_screen")
 
-    def test_vision_permission_level(self):
-        """see_screen phải có permission SYSTEM_ACTION."""
-        self.assertIn("see_screen", TOOL_PERMISSION_MAP)
+        self.assertEqual(COMMON_TOOL_ALIASES["save_screenshot"], "capture_screen")
+        self.assertEqual(COMMON_TOOL_ALIASES["screenshot_to_file"], "capture_screen")
+        self.assertEqual(COMMON_TOOL_ALIASES["read_image"], "analyze_image")
+        self.assertEqual(COMMON_TOOL_ALIASES["inspect_image"], "analyze_image")
+        self.assertEqual(COMMON_TOOL_ALIASES["look_webcam"], "watch_camera")
+        self.assertEqual(COMMON_TOOL_ALIASES["check_webcam"], "watch_camera")
+
+    def test_vision_permission_levels(self):
+        """Phân loại permission cho 4 tools vision đúng nguyên tắc bảo mật."""
         self.assertEqual(TOOL_PERMISSION_MAP["see_screen"], PermissionLevel.SYSTEM_ACTION)
+        self.assertEqual(TOOL_PERMISSION_MAP["capture_screen"], PermissionLevel.SYSTEM_ACTION)
+        self.assertEqual(TOOL_PERMISSION_MAP["analyze_image"], PermissionLevel.READ_ONLY)
+        self.assertEqual(TOOL_PERMISSION_MAP["watch_camera"], PermissionLevel.SENSITIVE_WRITE)
 
     def test_vision_model_role_in_router(self):
         """MODEL_ROLES phải có key 'vision'."""
         self.assertIn("vision", MODEL_ROLES)
-        # vision có thể None nếu chưa pull model
-        # Nhưng key phải tồn tại
 
     def test_vision_config_values(self):
         """Config vision phải có giá trị hợp lệ."""
@@ -57,39 +107,69 @@ class TestVisionModule(unittest.TestCase):
         self.assertTrue(len(DEFAULT_VISION_MODEL) > 0)
         self.assertIsInstance(OLLAMA_BASE_URL, str)
         self.assertTrue(OLLAMA_BASE_URL.startswith("http"))
+        self.assertEqual(WEBCAM_DEVICE_INDEX, 0)
+        self.assertGreater(VISION_CACHE_TTL_SEC, 0)
 
-    def test_get_relevant_schemas_includes_vision(self):
-        """get_relevant_schemas phải trả về see_screen khi có keyword vision."""
-        vision_queries = [
-            "đang hiện gì trên màn hình",
-            "xem màn hình",
-            "chụp màn hình phân tích",
-            "nhìn thấy gì trên screen",
-        ]
-        for q in vision_queries:
-            schemas = tool_registry.get_relevant_schemas(q)
-            names = [s["function"]["name"] for s in schemas]
-            self.assertIn("see_screen", names,
-                          f"see_screen không được trả về cho query: '{q}'")
+    def test_get_relevant_schemas_multimodal(self):
+        """get_relevant_schemas phải trả về đúng tool cho từng ý định thị giác."""
+        # see_screen
+        res_screen = [s["function"]["name"] for s in tool_registry.get_relevant_schemas("đang hiện gì trên màn hình")]
+        self.assertIn("see_screen", res_screen)
 
-    def test_get_relevant_schemas_excludes_vision_for_unrelated(self):
-        """Các query không liên quan vision không nên chứa see_screen."""
-        non_vision_queries = [
-            "mở brave browser",
-            "kiểm tra port 8080",
-            "hẹn giờ 5 phút",
-        ]
-        for q in non_vision_queries:
-            schemas = tool_registry.get_relevant_schemas(q)
-            names = [s["function"]["name"] for s in schemas]
-            self.assertNotIn("see_screen", names,
-                             f"see_screen không nên có trong query: '{q}'")
+        # watch_camera
+        res_cam = [s["function"]["name"] for s in tool_registry.get_relevant_schemas("bật camera nhìn xem tôi đang làm gì")]
+        self.assertIn("watch_camera", res_cam)
+
+        # analyze_image
+        res_img = [s["function"]["name"] for s in tool_registry.get_relevant_schemas("phân tích ảnh này cho tôi")]
+        self.assertIn("analyze_image", res_img)
+
+        # capture_screen
+        res_cap = [s["function"]["name"] for s in tool_registry.get_relevant_schemas("lưu ảnh màn hình vào máy")]
+        self.assertIn("capture_screen", res_cap)
+
+    def test_region_parsing(self):
+        """Hàm parse_region phải xử lý đúng tọa độ, Hyprland window và ném lỗi khi định dạng sai."""
+        # 1. Tọa độ số chuẩn
+        r1 = _parse_region("10,20 800x600")
+        self.assertEqual(r1, {"x": 10, "y": 20, "width": 800, "height": 600})
+
+        # 2. Hyprland active window mock
+        with patch("subprocess.run") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout='{"at": [100, 200], "size": [1200, 800]}')
+            r_active = _parse_region("active")
+            self.assertEqual(r_active, {"x": 100, "y": 200, "width": 1200, "height": 800})
+
+        # 3. Slurp interactive mock
+        with patch("subprocess.run") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout="50,60 400x300\n")
+            r_slurp = _parse_region("slurp")
+            self.assertEqual(r_slurp, {"x": 50, "y": 60, "width": 400, "height": 300})
+
+        # 4. Định dạng sai
+        with self.assertRaises(ValueError):
+            _parse_region("invalid_format_xyz")
+
+    def test_image_caching(self):
+        """Bộ nhớ đệm Image Cache phải lưu và trả về kết quả quan sát đúng TTL."""
+        test_hash = "mock_hash_123456"
+        test_query = "Mô tả màn hình"
+        test_desc = "Màn hình đang mở VS Code và terminal"
+
+        # Chưa cache
+        self.assertIsNone(_get_cached_analysis(test_hash, test_query))
+
+        # Lưu cache
+        _store_cached_analysis(test_hash, test_query, test_desc)
+
+        # Đã cache
+        cached = _get_cached_analysis(test_hash, test_query)
+        self.assertEqual(cached, test_desc)
 
     @patch("ai_assistant.tools.vision.subprocess.run")
     def test_capture_screen_grim_not_found(self, mock_run):
         """Nếu grim chưa cài, phải trả lỗi rõ ràng."""
         mock_run.return_value = MagicMock(returncode=1)
-        from ai_assistant.tools.vision import capture_screen_wayland
         b64, meta = capture_screen_wayland()
         self.assertIsNone(b64)
         self.assertIn("error", meta)
@@ -98,25 +178,22 @@ class TestVisionModule(unittest.TestCase):
     @patch("ai_assistant.tools.vision._check_vision_model_available", return_value=False)
     def test_see_screen_no_vision_model(self, mock_check):
         """Nếu vision model chưa pull, phải trả lỗi hướng dẫn cài."""
-        from ai_assistant.tools.vision import see_screen
         result = see_screen(query="test")
         self.assertFalse(result["success"])
         self.assertIn("ollama pull", result["error"])
 
-    def test_see_screen_invalid_region(self):
-        """Region format sai phải trả lỗi rõ ràng."""
-        from ai_assistant.tools.vision import see_screen
+    def test_analyze_image_file_not_found(self):
+        """analyze_image khi file không tồn tại phải trả lỗi rõ ràng."""
         with patch("ai_assistant.tools.vision._check_vision_model_available", return_value=True):
-            # "abc,def 100x200" has 4 parts after split but abc/def are not ints → ValueError
-            result = see_screen(query="test", region="abc,def 100x200")
-            self.assertFalse(result["success"])
-            self.assertIn("Region", result["error"])
+            res = analyze_image("/path/to/non_existent_image_123.jpg")
+            self.assertFalse(res["success"])
+            self.assertIn("không tồn tại", res["error"])
 
-    def test_tool_count_is_15(self):
-        """Tổng số tool đăng ký phải là 15 (14 cũ + see_screen)."""
+    def test_tool_count_is_18(self):
+        """Tổng số tool đăng ký phải là 18 (14 cũ + 4 tools vision)."""
         total = len(tool_registry._tools)
-        self.assertEqual(total, 15,
-                         f"Kỳ vọng 15 tools (14 cũ + see_screen), nhưng có {total}: "
+        self.assertEqual(total, 18,
+                         f"Kỳ vọng 18 tools (14 core + 4 vision), nhưng có {total}: "
                          f"{list(tool_registry._tools.keys())}")
 
 

@@ -200,6 +200,15 @@ def main():
     ensure_overlay_running()
     init_state_handlers()
 
+    # Preflight Check tài nguyên mô hình
+    from ai_assistant.config import assistant_config
+    missing_assets = assistant_config.verify_required_assets()
+    if missing_assets:
+        print("⚠️ [CẢNH BÁO TIỀN KHỞI CHẠY - PREFLIGHT CHECK]")
+        for item in missing_assets:
+            print(f"  {item}")
+        print("💡 Hãy kiểm tra lại thư mục models/ hoặc biến môi trường AI_ASSISTANT_*.\n")
+
     # 0. Quét danh sách ứng dụng trên hệ thống
     print("⏳ [1/4] Đang lập chỉ mục các ứng dụng trên hệ thống...")
     app_index = build_app_index()

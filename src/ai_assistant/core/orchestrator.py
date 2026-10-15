@@ -15,6 +15,7 @@ from ai_assistant.core.state import set_assistant_state
 from ai_assistant.core.agent_state import StructuredAgentState, AgentBudget
 from ai_assistant.core.evaluator import task_evaluator, retry_controller
 from ai_assistant.ai.model_router import route_task, MODEL_ROLES
+from ai_assistant.ai.ollama_client import _ollama_session
 from ai_assistant.tools.registry import tool_registry
 from ai_assistant.speech.tts import speak, sanitize_text_for_voice
 
@@ -297,7 +298,7 @@ VÍ DỤ GỌI CÔNG CỤ:
             }
 
             try:
-                resp = requests.post(OLLAMA_URL, json=payload, timeout=llm_timeout)
+                resp = _ollama_session.post(OLLAMA_URL, json=payload, timeout=(3.0, llm_timeout))
                 if resp.status_code != 200:
                     err = f"Lỗi gọi Ollama: HTTP {resp.status_code}"
                     print(f"⚠️ {err}")
@@ -471,7 +472,7 @@ VÍ DỤ GỌI CÔNG CỤ:
                 remaining_time = max(3.0, actual_budget.max_runtime_sec - elapsed_sec)
                 final_timeout = min(remaining_time, 30.0)
 
-                final_req = requests.post(
+                final_req = _ollama_session.post(
                     OLLAMA_URL,
                     json={
                         "model": MODEL_ROLES["coder"] if "code" in prompt.lower() or "build" in prompt.lower() else MODEL_ROLES["fast"],

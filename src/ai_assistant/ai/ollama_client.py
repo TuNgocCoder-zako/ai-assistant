@@ -7,6 +7,8 @@ import json
 import time
 import threading
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import numpy as np
 import sounddevice as sd
 
@@ -23,6 +25,18 @@ from ai_assistant.speech.tts import (
 from ai_assistant.tools.web import search_duckduckgo_summary
 from ai_assistant.ai.model_router import route_task
 from ai_assistant.ai.prompts import get_system_prompt
+
+# Session có cấu hình retry và connection pooling chống nghẽn / treo luồng
+_ollama_session = requests.Session()
+_retry_strategy = Retry(
+    total=2,
+    backoff_factor=0.3,
+    status_forcelist=[502, 503, 504],
+    allowed_methods=["GET", "POST"]
+)
+_adapter = HTTPAdapter(max_retries=_retry_strategy, pool_connections=4, pool_maxsize=4)
+_ollama_session.mount("http://", _adapter)
+_ollama_session.mount("https://", _adapter)
 
 conversation_history = []
 
@@ -162,7 +176,7 @@ def query_ollama_streaming(prompt: str, app_index: dict, voice: str = DEFAULT_VO
     in_think_block = False
 
     try:
-        resp = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=120)
+        resp = _ollama_session.post(OLLAMA_URL, json=payload, stream=True, timeout=(3.0, 90.0))
         if resp.status_code == 200:
             for line in resp.iter_lines():
                 if player.interrupt_speech_event.is_set():

@@ -1,18 +1,60 @@
-"""
-Cấu hình tập trung cho Voice AI Assistant (V2)
-"""
-
+from __future__ import annotations
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Thư mục gốc của dự án (voice-ai/)
 BASE_DIR = str(Path(__file__).resolve().parent.parent.parent)
+PROJECT_ROOT = Path(BASE_DIR)
+DEFAULT_MODELS_DIR = Path(os.getenv("AI_ASSISTANT_MODELS_DIR", PROJECT_ROOT / "models"))
+
+@dataclass(frozen=True)
+class AssistantConfig:
+    models_dir: Path = DEFAULT_MODELS_DIR
+    whisper_model_path: Path = field(
+        default_factory=lambda: Path(
+            os.getenv("AI_ASSISTANT_WHISPER_MODEL", DEFAULT_MODELS_DIR / "whisper" / "whisper-small-vietnamese-ct2")
+        )
+    )
+    piper_model_path: Path = field(
+        default_factory=lambda: Path(
+            os.getenv("AI_ASSISTANT_PIPER_MODEL", DEFAULT_MODELS_DIR / "piper" / "vi_VN-giong_nu_pho_thong-medium.onnx")
+        )
+    )
+    wakeword_model_path: Path = field(
+        default_factory=lambda: Path(
+            os.getenv("AI_ASSISTANT_WAKEWORD_MODEL", DEFAULT_MODELS_DIR / "wakeword" / "alexa_verifier.pkl")
+        )
+    )
+    ollama_base_url: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    )
+    ollama_model: str = field(
+        default_factory=lambda: os.getenv("AI_ASSISTANT_LLM_MODEL", "qwen3:4b")
+    )
+    sample_rate: int = 16000
+    channels: int = 1
+
+    def verify_required_assets(self) -> list[str]:
+        """Kiểm tra sự tồn tại của các tệp mô hình và cảnh báo trước khi khởi chạy."""
+        missing: list[str] = []
+        required_paths = {
+            "Piper TTS Model": self.piper_model_path,
+        }
+        for name, path in required_paths.items():
+            if not path.exists():
+                missing.append(f"- {name}: Không tìm thấy tại '{path}'")
+        return missing
+
+# Khởi tạo instance cấu hình mặc định
+assistant_config = AssistantConfig()
+
 OVERLAY_QML_PATH = os.path.join(BASE_DIR, "overlay", "VoiceOverlay.qml")
 
 # Cấu hình Ollama LLM
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_FAST_MODEL = "qwen3:4b"
+OLLAMA_URL = f"{assistant_config.ollama_base_url}/api/chat"
+OLLAMA_BASE_URL = assistant_config.ollama_base_url
+DEFAULT_FAST_MODEL = assistant_config.ollama_model
 DEFAULT_CODER_MODEL = "qwen3:4b"
 DEFAULT_REASONING_MODEL = "qwen3:4b"
 
@@ -26,11 +68,11 @@ DEFAULT_VOICE = "vi_VN-giong_nu_pho_thong-medium"  # Giọng nữ phổ thông t
 DEFAULT_VOICE_MALE = "vi_VN-thanh_nien_tu_tin-medium"  # Giọng nam thanh niên tự tin
 DEFAULT_STT_MODEL = "small"
 TTS_ENGINE = os.getenv("TTS_ENGINE", "piper")  # Piper Local 100% Offline (<80ms, không cần mạng)
-PIPER_MODEL_PATH = os.path.expanduser("~/Projects/python/voice-ai/models/piper/vi_VN-giong_nu_pho_thong-medium.onnx")
+PIPER_MODEL_PATH = str(assistant_config.piper_model_path)
 PIPER_MODEL_MALE_PATH = os.path.expanduser("~/Projects/python/voice-ai/models/piper/vi_VN-thanh_nien_tu_tin-medium.onnx")
 
 # Cấu hình DSP âm thanh
-SAMPLE_RATE = 16000
+SAMPLE_RATE = assistant_config.sample_rate
 CHUNK_SIZE = 1280  # 80ms chunk cho openWakeWord (16000 * 0.08)
 DEFAULT_THRESHOLD = 0.55  # Ngưỡng nhạy cân bằng tối ưu (Max non-wake score = 0.147, Alexa >= 0.70)
 MUSIC_WAKE_THRESHOLD_BOOST = 0.05  # Tăng nhẹ khi đang bật nhạc lớn (ngưỡng 0.60) để chặn hoàn toàn gai âm thanh (transients)

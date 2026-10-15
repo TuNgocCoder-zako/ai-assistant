@@ -50,6 +50,26 @@ def start_ipc_server():
 
     cleanup_ipc_socket(force=True)
 
+    # Dọn dẹp socket mồ côi nếu tiến trình trước đó bị dừng đột ngột (SIGKILL)
+    if os.path.exists(sock_path):
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(0.3)
+            probe.connect(sock_path)
+            probe.close()
+            print("⚠️ Socket đang được sử dụng bởi một tiến trình khác.")
+            return
+        except (ConnectionRefusedError, socket.timeout, OSError):
+            try:
+                os.unlink(sock_path)
+            except Exception:
+                pass
+        finally:
+            try:
+                probe.close()
+            except Exception:
+                pass
+
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         server.bind(sock_path)

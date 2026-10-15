@@ -48,11 +48,16 @@ FORBIDDEN_BASH_PATTERNS = [
     r"\brm\s+(?:-[a-zA-Z0-9-]+\s+)*(?:/(?:\s|$|\*|\.\.)|/home/\.\./|/etc(?:\s|/|$)|/boot(?:\s|/|$)|/sys(?:\s|/|$)|/dev(?:\s|/|$)|/proc(?:\s|/|$)|/root(?:\s|/|$))",
     r"\bmkfs\b",                            # Format phân vùng ổ đĩa
     r"\bdd\s+if=.*of=/dev/(?:sd|nvme|vd)",  # Ghi đè trực tiếp raw block device
-    r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;",# Fork bomb làm sập RAM
+    r":\(\)\s*\{",                          # Fork bomb làm sập RAM / CPU
+    r"\b\w+\(\)\s*\{\s*\w+\s*\|\s*\w+\s*&\s*\}\s*;\s*\w+\b", # Function-based fork bomb
     r">\s*/dev/(?:sd|nvme|vd)[a-z0-9]*",   # Ghi đè trực tiếp raw partition
     r"\bchmod\s+-R\s+777\s+/(?:\s|$)",      # Phá vỡ phân quyền hệ điều hành
     r"\bchown\s+-R\s+.*\s+/(?:\s|$)",       # Chiếm quyền sở hữu toàn bộ root
     r"\binit\s+0\b|\bshutdown\b|\breboot\b",# Tự ý tắt hoặc khởi động lại máy đột ngột
+    r"\b(?:killall|pkill)\s+(?:-[a-zA-Z0-9]+\s+)*(?:systemd|hyprland|waybar|dbus|pipewire|wireplumber|Xorg|login|sway|init|sshd|polkit|bash|zsh|fish|kitty|alacritty|foot|agy|antigravity)\b", # Tắt tiến trình hệ điều hành / môi trường desktop
+    r"\bkill\s+(?:-[a-zA-Z0-9]+\s+)*(?:-9\s+)?(?:1|-1)\b", # Diệt tiến trình PID 1 hoặc toàn bộ tiến trình
+    r"(?:/etc/shadow|/etc/gshadow|/etc/sudoers|/etc/master\.passwd)\b", # Đọc file mật khẩu/quyền hạn nhạy cảm
+    r"\.ssh/id_[a-zA-Z0-9]+\b",             # Đọc SSH private keys qua shell
     r"\|\s*(?:sudo\s+)?(?:ba|z|da|k|c)?sh\b", # Pipe nguy hiểm vào shell interpreter (curl ... | bash)
     r"\bbase64\s+(?:-[a-zA-Z0-9-]*d|--decode)\b.*\|\s*(?:ba|z|da|k|c)?sh\b", # Base64 decode piped to shell
     r"\b(?:curl|wget)\b.*\|\s*(?:sudo\s+)?(?:ba|z|da|k|c)?sh\b", # Tải script từ xa thực thi trực tiếp

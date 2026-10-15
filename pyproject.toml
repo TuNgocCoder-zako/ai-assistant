@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "ctranslate2",
-    "edge-tts",
+    "piper-tts",
     "faster-whisper",
     "numpy",
     "openwakeword",

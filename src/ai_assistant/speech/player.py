@@ -30,11 +30,13 @@ def make_chime_wav(freqs: list, durs: list, decay: float = 10.0, volume: float =
     Tổng hợp âm thanh phản hồi dạng sóng sin ấm áp (Acoustic Tone), êm dịu, không chói gắt:
     - Frequencies dải trung ấm (G4-C5 ~ 392Hz - 523Hz) tạo cảm giác dễ chịu, gần gũi.
     - Attack ramp 10ms loại bỏ hoàn toàn tiếng click/pop mở đầu.
+    - Release ramp 15ms loại bỏ triệt để tiếng click/pop/xoẹt ngắt nốt và kết thúc âm.
     - Hài âm mềm mại (85% fundamental, 12% 2nd, 3% 3rd) mô phỏng tiếng marimba / phím đàn Rhodes.
-    - Âm lượng tối ưu vừa đủ nghe (volume ~ 0.20 - 0.25) không gây giật mình.
+    - Đệm 25ms khoảng lặng 0.0 ở đuôi để phần cứng DAC/PipeWire hồi tiếp địa êm ái.
     """
     chunks = []
-    attack_samples = int(SAMPLE_RATE * 0.010)  # 10ms fade-in êm mượt
+    attack_samples = int(SAMPLE_RATE * 0.010)   # 10ms fade-in êm mượt
+    release_samples = int(SAMPLE_RATE * 0.015)  # 15ms fade-out chống xoẹt/pop ngắt âm
     for f, d in zip(freqs, durs):
         n_samples = int(SAMPLE_RATE * d)
         t = np.linspace(0, d, n_samples, False)
@@ -42,8 +44,14 @@ def make_chime_wav(freqs: list, durs: list, decay: float = 10.0, volume: float =
         env = np.exp(-decay * t)
         if n_samples > attack_samples:
             env[:attack_samples] *= np.linspace(0.0, 1.0, attack_samples)
+        if n_samples > release_samples:
+            env[-release_samples:] *= np.linspace(1.0, 0.0, release_samples)
+        else:
+            env[-1] = 0.0
         chunks.append(volume * wave * env)
-    return np.concatenate(chunks).astype(np.float32)
+    result = np.concatenate(chunks).astype(np.float32)
+    tail_silence = np.zeros(int(SAMPLE_RATE * 0.025), dtype=np.float32)
+    return np.concatenate([result, tail_silence])
 
 CHIMES = {
     # 1. Wake Chime: Hai nốt tăng dần ấm áp G4 (392Hz) -> C5 (523.25Hz), êm dịu phong cách Google / Siri
@@ -56,12 +64,12 @@ CHIMES = {
     "alarm": make_chime_wav([261.63, 329.63, 392.0, 523.25], [0.10, 0.10, 0.10, 0.22], decay=8.0, volume=0.25)
 }
 
-def play_chime(name: str):
-    """Phát âm thanh earcon trực tiếp qua sounddevice trong vài mili-giây mà không chặn."""
+def play_chime(name: str, blocking: bool = False):
+    """Phát âm thanh earcon trực tiếp qua sounddevice trong vài mili-giây."""
     audio = CHIMES.get(name)
     if audio is not None:
         try:
-            sd.play(audio, samplerate=SAMPLE_RATE, blocking=False)
+            sd.play(audio, samplerate=SAMPLE_RATE, blocking=blocking)
         except Exception:
             pass
 
@@ -91,15 +99,19 @@ def reap_process(proc, timeout: float = 1.0):
         pass
 
 def stop_current_speech():
-    """Cắt lời ngay lập tức: Dừng tiến trình phát âm thanh và dọn sạch hàng đợi câu nói."""
+    """Cắt lời ngay lập tức: Dừng âm thanh và dọn sạch hàng đợi câu nói."""
     global current_tts_proc
     interrupt_speech_event.set()
+    try:
+        sd.stop()
+    except Exception:
+        pass
 
     with _tts_proc_lock:
         proc = current_tts_proc
         current_tts_proc = None
-
-    reap_process(proc, timeout=1.0)
+    if proc:
+        reap_process(proc, timeout=0.5)
 
     # Xả sạch tts_queue
     while not tts_queue.empty():
@@ -108,7 +120,6 @@ def stop_current_speech():
             tts_queue.task_done()
         except Exception:
             break
-    play_chime("sleep")
     try:
         from ai_assistant.core.state import set_assistant_state
         set_assistant_state("idle")

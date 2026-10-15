@@ -56,28 +56,23 @@ COMMON_TOOL_ALIASES = {
     "git_status": "get_git_repository_status",
     "docker_ps": "check_docker_containers",
     "system_status": "get_system_status",
-    "screenshot": "see_screen",
-    "view_screen": "see_screen",
-    "look_screen": "see_screen",
-    "observe_screen": "see_screen",
-    "analyze_screen": "see_screen",
-    "screen_capture": "see_screen",
 
     # capture_screen aliases
     "save_screenshot": "capture_screen",
     "screenshot_to_file": "capture_screen",
     "take_screen_capture": "capture_screen",
 
-    # analyze_image aliases
-    "read_image": "analyze_image",
-    "inspect_image": "analyze_image",
-    "describe_image": "analyze_image",
+    # check_network_speed aliases
+    "network_speed": "check_network_speed",
+    "speedtest": "check_network_speed",
+    "ping": "check_network_speed",
+    "measure_network_speed": "check_network_speed",
+    "test_network_speed": "check_network_speed",
 
-    # watch_camera aliases
-    "look_webcam": "watch_camera",
-    "capture_camera": "watch_camera",
-    "check_webcam": "watch_camera",
-    "view_camera": "watch_camera",
+    # open_url aliases
+    "open_browser": "open_url",
+    "open_web": "open_url",
+    "browse_url": "open_url",
 }
 
 class ToolRegistry:
@@ -159,18 +154,14 @@ class ToolRegistry:
             selected.append("search_and_show_image")
         if any(k in q for k in ["hẹn giờ", "báo thức", "phút", "chuông"]):
             selected.append("manage_timer_and_alarm")
-        # Vision & Screen Awareness (V2.3)
-        if any(k in q for k in ["webcam", "camera", "nhìn tôi", "trước mặt", "nhìn qua camera", "quay camera", "bật camera"]):
-            selected.append("watch_camera")
-        if any(k in q for k in ["phân tích ảnh", "đọc ảnh", "xem ảnh này", "file ảnh", "bức ảnh này", "ảnh có sẵn", "ảnh trên đĩa"]):
-            selected.append("analyze_image")
+        # Vision & Screen Awareness (V2.3 - capture_screen)
         if any(k in q for k in ["lưu ảnh màn hình", "lưu screenshot", "save screenshot", "chụp lại màn hình và lưu", "chụp màn hình vào file", "chụp ảnh lưu"]):
             selected.append("capture_screen")
-        if any(k in q for k in ["màn hình", "screen", "đang hiện", "nhìn", "xem màn hình",
-                                 "hiển thị", "giao diện", "screenshot", "chụp màn hình",
-                                 "đang mở gì", "có lỗi gì trên", "nhìn thấy", "quan sát",
-                                 "vision", "phân tích màn hình", "nội dung màn hình"]):
-            selected.append("see_screen")
+        # Network Speed & Web Navigation (Mức 1 & Mức 2)
+        if any(k in q for k in ["mạng", "tốc độ", "speed", "speedtest", "ping", "băng thông", "internet", "đo mạng", "download"]):
+            selected.append("check_network_speed")
+        if any(k in q for k in ["web", "trang web", "link", "url", "youtube", "facebook", "gmail", "github", "trình duyệt"]):
+            selected.append("open_url")
 
         res = []
         seen = set()
@@ -249,21 +240,7 @@ class ToolRegistry:
                             if a in arguments:
                                 filtered_args["action"] = arguments[a]
                                 break
-                    elif target_param == "image_path":
-                        for a in ["path", "file_path", "image", "img", "file", "target"]:
-                            if a in arguments:
-                                filtered_args["image_path"] = arguments[a]
-                                break
-                    elif target_param == "save_path":
-                        for a in ["path", "file_path", "output", "output_path", "target"]:
-                            if a in arguments:
-                                filtered_args["save_path"] = arguments[a]
-                                break
-                    elif target_param == "region":
-                        for a in ["area", "box", "zone", "coordinates", "vung"]:
-                            if a in arguments:
-                                filtered_args["region"] = arguments[a]
-                                break
+
 
             # 3. Tầng kiểm tra & chuẩn hóa tham số (Argument Validator)
             is_valid, validated_args, val_err = argument_validator.validate(tool.name, filtered_args)
@@ -430,6 +407,23 @@ def read_file_content(path: str, max_lines: int = 50) -> str:
     description="Khởi chạy một ứng dụng desktop theo tên (vd: IntelliJ, VS Code, Chrome, Kitty, Zalo, Spotify...)."
 )
 def launch_application(app_name: str) -> dict:
+    from ai_assistant.config import URL_SHORTCUTS
+    clean_name = app_name.lower().strip()
+    clean_name = re.sub(r"\b(trên web|trang web|ứng dụng web|trình duyệt|web|app|phần mềm)\b", "", clean_name).strip()
+    clean_name = re.sub(r"^(?:mở|vào|bật|chạy)\s+", "", clean_name).strip()
+
+    # 1. Hỗ trợ mở URL trực tiếp nếu có tiền tố http/https
+    if app_name.startswith("http://") or app_name.startswith("https://"):
+        web.open_url(app_name)
+        return {"launched": True, "app_name": app_name, "type": "url"}
+
+    # 2. Hỗ trợ các dịch vụ Web phổ biến (YouTube, Facebook, Gmail, GitHub...)
+    for site, link in URL_SHORTCUTS.items():
+        if clean_name == site:
+            web.open_url(link)
+            site_name = "YouTube" if site in ["youtube", "du túp", "dút túp"] else site.capitalize()
+            return {"launched": True, "app_name": site_name, "type": "web", "url": link}
+
     app_index = apps.build_app_index()
     matched = apps.match_app(app_name, app_index)
     if not matched:
@@ -584,3 +578,23 @@ def manage_timer_and_alarm(action: str, minutes: float = 0, hour: int = 0, minut
     if act == "cancel":
         return timer.timer_manager.cancel_all()
     return timer.timer_manager.check_timers()
+
+# ================= 7. Công cụ Kiểm tra Mạng & Trình duyệt Web =================
+
+@tool_registry.register(
+    name="check_network_speed",
+    description="Kiểm tra và đo tốc độ mạng Internet, bao gồm độ trễ ping DNS (ms) và băng thông tải xuống (Mbps)."
+)
+def check_network_speed() -> dict:
+    info = system.get_network_speed_info()
+    return {"success": True, "result": info}
+
+@tool_registry.register(
+    name="open_url",
+    description="Mở một địa chỉ trang web URL hoặc dịch vụ trực tuyến trong trình duyệt mặc định."
+)
+def open_url(url: str) -> dict:
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    web.open_url(url)
+    return {"success": True, "url": url}

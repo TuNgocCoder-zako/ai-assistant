@@ -55,7 +55,6 @@ class TimerAlarmManager:
             })
             self._save()
 
-        play_chime("ack")
         mins_val = int(minutes) if minutes >= 1 else f"{int(seconds)} giây"
         unit = "phút" if minutes >= 1 else ""
         label_text = f" cho {label}" if label else ""
@@ -81,7 +80,6 @@ class TimerAlarmManager:
             })
             self._save()
 
-        play_chime("ack")
         time_display = f"{hour} giờ" + (f" {minute} phút" if minute > 0 else "")
         day_text = "ngày mai" if target_dt.date() > now.date() else "hôm nay"
         label_text = f" cho {label}" if label else ""
@@ -114,7 +112,6 @@ class TimerAlarmManager:
             count = len(self.timers)
             self.timers = []
             self._save()
-        play_chime("ack")
         if count == 0:
             return "Hiện tại không có hẹn giờ nào để hủy."
         return "Đã hủy toàn bộ hẹn giờ và báo thức cho bạn rồi nhé."

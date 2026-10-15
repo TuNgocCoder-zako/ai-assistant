@@ -3,6 +3,7 @@ from ai_assistant.tools.system import (
     get_vietnamese_time,
     get_vietnamese_date,
     get_battery_info,
+    get_cpu_info,
     get_system_hardware_info,
     get_weather_info,
     parse_simple_math,
@@ -23,6 +24,7 @@ from ai_assistant.tools.apps import (
     match_app,
     find_app_in_text,
     launch_desktop_app,
+    launch_multiple_targets,
     get_hyprland_clients,
     get_hyprland_active_window,
     close_hyprland_window_by_address,
@@ -46,10 +48,7 @@ from ai_assistant.tools.web import (
     open_google_search,
 )
 from ai_assistant.tools.vision import (
-    see_screen,
     capture_screen,
-    analyze_image,
-    watch_camera,
 )
 from ai_assistant.tools.registry import tool_registry
 
@@ -60,6 +59,7 @@ __all__ = [
     "get_vietnamese_time",
     "get_vietnamese_date",
     "get_battery_info",
+    "get_cpu_info",
     "get_system_hardware_info",
     "get_weather_info",
     "parse_simple_math",
@@ -78,6 +78,7 @@ __all__ = [
     "match_app",
     "find_app_in_text",
     "launch_desktop_app",
+    "launch_multiple_targets",
     "get_hyprland_clients",
     "get_hyprland_active_window",
     "close_hyprland_window_by_address",
@@ -95,9 +96,6 @@ __all__ = [
     "open_url",
     "open_youtube_search",
     "open_google_search",
-    "see_screen",
     "capture_screen",
-    "analyze_image",
-    "watch_camera",
     "tool_registry",
 ]

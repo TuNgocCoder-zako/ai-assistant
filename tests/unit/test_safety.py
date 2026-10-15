@@ -45,5 +45,12 @@ class TestSafetyGuard(unittest.TestCase):
         self.assertFalse(res["success"])
         self.assertIn("LỆNH BỊ CHẶN", res["stderr"])
 
+    def test_forbidden_critical_process_kill(self):
+        # Hạ gục tiến trình hệ thống / desktop
+        for cmd in ["killall systemd", "pkill -9 hyprland", "kill -9 1", "cat /etc/shadow"]:
+            res = run_terminal_command(cmd)
+            self.assertFalse(res["success"], f"Lệnh '{cmd}' không được phép thực thi!")
+            self.assertIn("LỆNH BỊ CHẶN", res["stderr"])
+
 if __name__ == "__main__":
     unittest.main()

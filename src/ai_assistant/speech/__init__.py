@@ -11,9 +11,12 @@ from ai_assistant.speech.player import (
 )
 from ai_assistant.speech.tts import (
     speak,
-    speak_edge_tts,
+    speak_piper_tts,
+    get_piper_voice,
     sanitize_text_for_voice,
     send_notification,
+    fix_vietnamese_sticky_tokens,
+    trim_incomplete_sentence,
 )
 
 __all__ = [
@@ -27,7 +30,10 @@ __all__ = [
     "tts_queue",
     "CHIMES",
     "speak",
-    "speak_edge_tts",
+    "speak_piper_tts",
+    "get_piper_voice",
     "sanitize_text_for_voice",
     "send_notification",
+    "fix_vietnamese_sticky_tokens",
+    "trim_incomplete_sentence",
 ]

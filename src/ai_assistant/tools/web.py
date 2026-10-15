@@ -87,8 +87,17 @@ def search_and_display_image(query: str, download_dir: str = PICTURES_DIR) -> tu
     return False, f"Không thể tải và hiển thị bức ảnh về {clean_q} lúc này."
 
 def open_url(url: str):
-    """Mở link URL trong trình duyệt mặc định."""
-    subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    """Mở link URL trong trình duyệt và tự động đưa cửa sổ trình duyệt lên tiêu điểm màn hình."""
+    if shutil.which("firefox"):
+        subprocess.Popen(["firefox", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    else:
+        subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+    try:
+        from ai_assistant.tools.apps import focus_window_by_class
+        focus_window_by_class("firefox")
+    except Exception:
+        pass
 
 def open_youtube_search(query: str = "") -> str:
     """Mở tìm kiếm YouTube."""

@@ -85,12 +85,6 @@ class TestAgentOrchestrator(unittest.TestCase):
         self.assertTrue(agent_orchestrator.is_complex_request("Tắt nhạc và sau đó giảm độ sáng màn hình"))
         self.assertTrue(agent_orchestrator.is_complex_request("Nếu pin dưới 20% thì bật chế độ tiết kiệm pin"))
 
-        # Các câu lệnh thị giác / Vision & Screen Awareness (V2.3)
-        self.assertTrue(agent_orchestrator.is_complex_request("Đang hiện gì trên màn hình?"))
-        self.assertTrue(agent_orchestrator.is_complex_request("Xem màn hình đọc lỗi giúp tôi"))
-        self.assertTrue(agent_orchestrator.is_complex_request("Nhìn qua webcam xem có ai ở đây không"))
-        self.assertTrue(agent_orchestrator.is_complex_request("Chụp màn hình và phân tích giao diện"))
-
         # Các câu hỏi đơn giản / đàm thoại thông thường
         self.assertFalse(agent_orchestrator.is_complex_request("Thời tiết Hà Nội hôm nay thế nào?"))
         self.assertFalse(agent_orchestrator.is_complex_request("Bạn là ai?"))

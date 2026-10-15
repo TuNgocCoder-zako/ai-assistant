@@ -50,7 +50,7 @@ from ai_assistant.speech import (
     tts_queue,
     CHIMES,
     speak,
-    speak_edge_tts,
+    speak_piper_tts,
     sanitize_text_for_voice,
     send_notification,
 )
@@ -94,6 +94,7 @@ from ai_assistant.tools import (
     get_vietnamese_time,
     get_vietnamese_date,
     get_battery_info,
+    get_cpu_info,
     get_system_hardware_info,
     get_weather_info,
     parse_simple_math,

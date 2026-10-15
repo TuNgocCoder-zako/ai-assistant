@@ -29,10 +29,10 @@ class AgentStep:
 
 @dataclass
 class AgentBudget:
-    max_steps: int = 8
-    max_runtime_sec: float = 60.0
-    max_tool_calls: int = 12
-    max_consecutive_identical_calls: int = 2  # Ngưỡng kích hoạt Stall Detection
+    max_steps: int = 3                       # ponytail: 3B stall sau 2-3 steps
+    max_runtime_sec: float = 30.0            # ponytail: giảm timeout tương ứng
+    max_tool_calls: int = 5                  # ponytail: giảm tool calls tương ứng
+    max_consecutive_identical_calls: int = 2  # Giữ nguyên
 
 @dataclass
 class StructuredAgentState:

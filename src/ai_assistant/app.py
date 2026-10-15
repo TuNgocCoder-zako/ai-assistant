@@ -12,6 +12,8 @@ import sounddevice as sd
 
 from ai_assistant.config import (
     DEFAULT_THRESHOLD,
+    MUSIC_WAKE_THRESHOLD_BOOST,
+    WAKE_PATIENCE_FRAMES,
     DEFAULT_VOICE,
     DEFAULT_FOLLOWUP_TIMEOUT,
     SAMPLE_RATE,
@@ -21,9 +23,10 @@ from ai_assistant.config import (
 from ai_assistant.ipc.server import start_ipc_server
 from ai_assistant.ipc.client import send_ipc_command
 from ai_assistant.core.state import ensure_overlay_running, init_state_handlers
-from ai_assistant.speech.player import play_chime, trigger_event
+from ai_assistant.speech.player import trigger_event
 from ai_assistant.speech.tts import send_notification
 from ai_assistant.tools.apps import build_app_index
+from ai_assistant.tools.system import is_media_playing
 from ai_assistant.audio.stt import load_whisper_model
 from ai_assistant.audio.wakeword import load_wakeword_model
 from ai_assistant.ai.model_router import MODEL_ROLES
@@ -45,6 +48,11 @@ def parse_args():
         "--stop",
         action="store_true",
         help="Gửi tín hiệu ngắt lời / dừng phát âm tới trợ lý đang chạy nền"
+    )
+    parser.add_argument(
+        "--relisten",
+        action="store_true",
+        help="Dừng ngay suy nghĩ/phát âm và kích hoạt micro lắng nghe ngay lượt mới"
     )
     parser.add_argument(
         "--status",
@@ -79,14 +87,20 @@ def parse_args():
     parser.add_argument(
         "-v", "--voice",
         type=str,
-        default="vi-VN-HoaiMyNeural",
-        choices=["vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"],
-        help="Giọng đọc Edge-TTS (mặc định: vi-VN-HoaiMyNeural - nữ; vi-VN-NamMinhNeural - nam)"
+        default=DEFAULT_VOICE,
+        help="Giọng đọc Piper TTS Offline (mặc định: vi_VN-giong_nu_pho_thong-medium; vi_VN-thanh_nien_tu_tin-medium)"
     )
     parser.add_argument(
         "-c", "--continuous",
         action="store_true",
-        help="Bật chế độ thoại liên tục nhiều lượt (mặc định: TẮT để tự động đóng cửa sổ ngay khi hoàn thành câu lệnh)"
+        default=True,
+        help="Bật chế độ thoại liên tục nhiều lượt (mặc định: BẬT)"
+    )
+    parser.add_argument(
+        "--no-continuous",
+        dest="continuous",
+        action="store_false",
+        help="Tắt chế độ thoại liên tục (chỉ trả lời 1 lượt rồi nghỉ)"
     )
     parser.add_argument(
         "--timeout",
@@ -98,6 +112,17 @@ def parse_args():
         "--loop",
         action="store_true",
         help="Giữ trợ lý chạy ngầm lặp lại sau khi trò chuyện thay vì tự động tắt hoàn toàn"
+    )
+    parser.add_argument(
+        "--text",
+        type=str,
+        default="",
+        help="Thực thi câu lệnh văn bản trực tiếp (gửi qua IPC hoặc xử lý ngay)"
+    )
+    parser.add_argument(
+        "--deep",
+        action="store_true",
+        help="Bật chế độ Suy luận sâu (Agent Core 3B) cho câu lệnh văn bản"
     )
     args, _ = parser.parse_known_args()
     return args
@@ -124,6 +149,15 @@ def main():
             print(f"⚠️ {msg}")
             sys.exit(1)
 
+    if args.relisten:
+        ok, msg = send_ipc_command("relisten")
+        if ok:
+            print(f"✅ Đã gửi tín hiệu dừng và nghe tiếp tới trợ lý Alexa: {msg}")
+            sys.exit(0)
+        else:
+            print(f"⚠️ {msg}")
+            sys.exit(1)
+
     if args.status:
         ok, msg = send_ipc_command("status")
         if ok:
@@ -132,6 +166,20 @@ def main():
         else:
             print(f"⚠️ {msg}")
             sys.exit(1)
+
+    if args.text:
+        ipc_cmd = f"deep_query:{args.text}" if args.deep else f"query:{args.text}"
+        ok, msg = send_ipc_command(ipc_cmd)
+        if ok:
+            print(f"✅ Đã gửi lệnh văn bản tới trợ lý Alexa: {msg}")
+            sys.exit(0)
+        else:
+            # Nếu daemon chưa chạy, thực thi trực tiếp câu lệnh
+            ensure_overlay_running()
+            from ai_assistant.core.agent import execute_text_command
+            res = execute_text_command(args.text, voice=args.voice, force_agent=args.deep)
+            print(f"🤖 Alexa: {res}")
+            sys.exit(0)
 
     wake_threshold = args.threshold
     selected_model = args.model
@@ -191,7 +239,11 @@ def main():
                             "messages": [{"role": "user", "content": "hi"}],
                             "stream": False,
                             "keep_alive": "15m",
-                            "options": {"num_predict": 1}
+                            "options": {
+                                "num_predict": 1,
+                                "num_gpu": 99,
+                                "num_ctx": 2048,
+                            }
                         },
                         timeout=10
                     )
@@ -206,7 +258,7 @@ def main():
     print("\n" + "-" * 65)
     print(f"🎙️ NGHE: Pre-roll 300ms + Schmitt Trigger VAD + Earcon Chimes + Whisper {selected_model}")
     print(f"⚡ HIỂU: Hybrid NLU (<5ms Fast-Path: app, nhạc, wifi, bluetooth, hẹn giờ, ghi chú, RAG)")
-    print(f"🗣️ TRẢ LỜI: Sentence-Level Streaming Edge-TTS '{selected_voice}' + Hỗ trợ Barge-in cắt lời")
+    print(f"🗣️ TRẢ LỜI: Sentence-Level Streaming Piper TTS Offline ('{selected_voice}') + Hỗ trợ Barge-in cắt lời")
     print(f"🔄 CHẠY NỀN: {'CHẠY 1 LẦN (--once)' if auto_exit_mode else 'DAEMON 24/7 (Luôn túc trực)'}")
     if args.push_to_talk:
         print("💡 Chế độ: Push-to-Talk (Bấm Enter để nói)")
@@ -215,7 +267,6 @@ def main():
     print("  * Bấm Ctrl+C bất kỳ lúc nào để thoát.")
     print("-" * 65)
 
-    play_chime("ack")
     send_notification("Alexa AI", "Trợ lý ảo Alexa đã sẵn sàng phục vụ.")
     time.sleep(0.15)
 
@@ -232,13 +283,17 @@ def main():
                     stream.read(stream.read_available)
             except Exception:
                 pass
-            oww_model.reset()
+            last_candidate_log = 0.0
+            last_media_check = 0.0
+            is_music_active = False
+            model_keys = list(oww_model.models.keys())
+            patience_dict = {k: WAKE_PATIENCE_FRAMES for k in model_keys}
 
             while True:
                 # 1. Kiểm tra tín hiệu IPC Socket
                 if trigger_event.is_set():
                     trigger_event.clear()
-                    print("\n\n⚡ [IPC Hotkey] Nhận tín hiệu kích hoạt từ phím tắt / IPC!")
+                    print("\n\n⚡ [IPC Hotkey] Nhận tín hiệu kích hoạt từ phím tắt / IPC!", flush=True)
                     oww_model.reset()
                     try:
                         stream.stop()
@@ -272,25 +327,45 @@ def main():
                             oww_model.predict(dummy_data.flatten())
                         except Exception:
                             break
-                    oww_model.reset()
-                    print(f"\n🎧 Đang lắng nghe từ khóa '{wake_word_label}' hoặc phím tắt...\n")
+                    print(f"\n🎧 Đang lắng nghe từ khóa '{wake_word_label}' hoặc phím tắt...\n", flush=True)
                     continue
 
                 # 2. Đọc chunk và nhận diện wake word
                 audio_data, _ = stream.read(CHUNK_SIZE)
                 audio_chunk = audio_data.flatten()
-                prediction = oww_model.predict(audio_chunk)
+
+                now = time.time()
+                if now - last_media_check >= 1.0:
+                    is_music_active = is_media_playing()
+                    last_media_check = now
+
+                effective_threshold = wake_threshold + (MUSIC_WAKE_THRESHOLD_BOOST if is_music_active else 0.0)
+                threshold_dict = {k: effective_threshold for k in model_keys}
+
+                prediction = oww_model.predict(
+                    audio_chunk,
+                    patience=patience_dict,
+                    threshold=threshold_dict
+                )
 
                 rms = np.sqrt(np.mean(audio_chunk.astype(np.float32)**2))
-                bars = int(min(rms / 4000, 1.0) * 8)
-                meter = "█" * bars + "░" * (8 - bars)
-                max_score = max(prediction.values()) if prediction else 0.0
-                print(f"\r🎤 Mic: [{meter}] | Độ khớp: {max_score:.2f} (Ngưỡng: {wake_threshold:.2f})  ", end="", flush=True)
+                raw_max = max((float(oww_model.prediction_buffer[k][-1]) for k in model_keys), default=0.0)
+
+                if sys.stdout.isatty():
+                    bars = int(min(rms / 4000, 1.0) * 8)
+                    meter = "█" * bars + "░" * (8 - bars)
+                    status_note = " 🎵 [AEC On]" if is_music_active else ""
+                    print(f"\r🎤 Mic: [{meter}] | Độ khớp: {raw_max:.2f} (Ngưỡng: {effective_threshold:.2f}{status_note})  ", end="", flush=True)
+                elif raw_max >= 0.25:
+                    if now - last_candidate_log > 0.4:
+                        status_note = " (Đang phát nhạc -> AEC lọc loa)" if is_music_active else ""
+                        print(f"🎙️ [WakeWord Candidate] Độ khớp tức thời: {raw_max:.2f} / {effective_threshold:.2f} (RMS: {int(rms)}){status_note}", flush=True)
+                        last_candidate_log = now
 
                 for model_name, score in prediction.items():
-                    if score > wake_threshold:
+                    if score >= effective_threshold:
                         detected_name = "Alexa" if "alexa" in model_name else "Hey Jarvis"
-                        print(f"\n\n✨ Đã phát hiện từ khóa '{detected_name}'! (Độ tin cậy: {score:.2f})")
+                        print(f"\n\n✨ Đã phát hiện từ khóa '{detected_name}'! (Độ tin cậy: {score:.2f})", flush=True)
                         oww_model.reset()
 
                         try:
@@ -326,8 +401,7 @@ def main():
                                 oww_model.predict(dummy_data.flatten())
                             except Exception:
                                 break
-                        oww_model.reset()
-                        print(f"\n🎧 Đang lắng nghe từ khóa '{wake_word_label}' hoặc phím tắt...\n")
+                        print(f"\n🎧 Đang lắng nghe từ khóa '{wake_word_label}' hoặc phím tắt...\n", flush=True)
                         break
 
     except KeyboardInterrupt:

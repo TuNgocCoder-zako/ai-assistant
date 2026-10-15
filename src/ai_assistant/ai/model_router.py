@@ -1,9 +1,10 @@
 """
-Định tuyến tác vụ thông minh (Task Specialization) cho Ollama Local LLMs.
+Định tuyến tác vụ cho Ollama Local LLM — Chế độ Qwen3 4B.
 """
 
+import re
 import requests
-from ai_assistant.config import DEFAULT_FAST_MODEL, DEFAULT_CODER_MODEL, DEFAULT_REASONING_MODEL
+from ai_assistant.config import DEFAULT_FAST_MODEL
 
 def get_installed_ollama_models() -> set[str]:
     """Lấy danh sách các model hiện có sẵn trong Ollama."""
@@ -16,97 +17,75 @@ def get_installed_ollama_models() -> set[str]:
     return set()
 
 def resolve_model_roles() -> dict:
-    """Tự động phát hiện và phân bổ model tốt nhất trên máy cho từng công việc."""
+    """Phân bổ role: qwen3:4b làm mô hình cốt lõi duy nhất cho toàn bộ hệ thống."""
     installed = get_installed_ollama_models()
-
-    # 1. Fast & Daily Model (Ưu tiên: qwen2.5:3b -> qwen2.5:1.5b -> alexa-vn)
-    fast_m = None
-    for cand in ["qwen2.5:3b", "llama3.2:3b", "qwen2.5:1.5b", "alexa-vn:latest"]:
+    primary_m = None
+    for cand in ["qwen3:4b", "qwen2.5:3b", "llama3.2:3b", "qwen2.5:1.5b"]:
         if cand in installed:
-            fast_m = cand
+            primary_m = cand
             break
-    if not fast_m:
-        fast_m = next(iter(installed)) if installed else DEFAULT_FAST_MODEL
-
-    # 2. Coder Model (Ưu tiên: qwen2.5-coder:7b)
-    coder_m = None
-    for cand in ["qwen2.5-coder:7b", "qwen2.5-coder:latest", "deepseek-coder:6.7b"]:
-        if cand in installed:
-            coder_m = cand
-            break
-    if not coder_m:
-        coder_m = fast_m
-
-    # 3. Reasoning Model (Ưu tiên: qwen3:8b)
-    reason_m = None
-    for cand in ["qwen3:8b", "llama3.1:8b", "deepseek-r1:8b"]:
-        if cand in installed:
-            reason_m = cand
-            break
-    if not reason_m:
-        reason_m = coder_m
-
-    # 4. Vision Model (V2.3 — Ưu tiên: minicpm-v → llava → llama3.2-vision → moondream2)
-    vision_m = None
-    for cand in ["minicpm-v:latest", "minicpm-v", "llava:latest", "llava",
-                 "llama3.2-vision:11b", "llama3.2-vision:latest", "moondream:latest", "moondream2"]:
-        if cand in installed:
-            vision_m = cand
-            break
-    # vision_m có thể None nếu chưa pull → see_screen tool sẽ báo lỗi rõ ràng
+    if not primary_m:
+        primary_m = DEFAULT_FAST_MODEL
 
     return {
-        "fast": fast_m,
-        "coder": coder_m,
-        "reasoning": reason_m,
-        "vision": vision_m,         # None nếu chưa có model vision
+        "fast": primary_m,
+        "coder": primary_m,
+        "reasoning": primary_m,
+        "vision": None,
     }
 
 MODEL_ROLES = resolve_model_roles()
 
-def route_task(prompt: str) -> tuple[str, str, dict]:
+def get_dynamic_num_predict(prompt: str, model_name: str = None) -> int:
     """
-    Bộ định tuyến thông minh (Smart Task Router):
-    Phân bổ chính xác từng công việc cho mô hình tối ưu nhất.
-    Trả về: (model_name, role_name, generation_options)
+    Tự động cấp phát số token tối đa phù hợp ngữ cảnh và loại mô hình:
+    - Nếu là mô hình reasoning (như qwen3 có khối <think>): Cần dự phòng thêm token cho reasoning.
+      + Khái niệm / giải thích: 1600 tokens.
+      + Xã giao / cảm ơn / chào hỏi: 800 tokens.
+      + Câu thông thường: 1200 tokens.
+    - Nếu là mô hình standard (như qwen2.5:3b không có khối <think>):
+      + Khái niệm / giải thích: 260 tokens.
+      + Xã giao / cảm ơn / chào hỏi: 80 tokens.
+      + Câu thông thường: 140 tokens.
     """
-    p = prompt.lower().strip()
+    p_low = prompt.lower().strip()
+    is_reasoning = bool(model_name and ("qwen3" in model_name.lower() or "r1" in model_name.lower()))
 
-    # 1. Nhóm LẬP TRÌNH & KỸ THUẬT CHUYÊN SÂU -> CODER MODEL (7B)
-    coding_keywords = [
-        "code", "lập trình", "java", "spring", "docker", "fix lỗi", "báo lỗi", "bug",
-        "thuật toán", "cơ sở dữ liệu", "sql", "hibernate", "jpa", "microservice",
-        "git", "bash", "hyprland", "cấu hình", "stack trace", "exception", "jvm",
-        "viết hàm", "viết class", "refactor", "tối ưu code", "query", "rest api"
+    # 1. Câu hỏi khái niệm, kiến thức, tại sao, giải thích
+    deep_patterns = [
+        r'\blà gì\b', r'\blà ai\b', r'\bthế nào\b', r'\bnhư thế nào\b',
+        r'\btại sao\b', r'\bvì sao\b', r'\bnguyên nhân\b', r'\bgiải thích\b',
+        r'\bkhái niệm\b', r'\bđịnh nghĩa\b', r'\bphân tích\b', r'\bso sánh\b',
+        r'\bkể về\b', r'\btóm tắt\b', r'\bnguồn gốc\b', r'\blịch sử\b',
+        r'\bý nghĩa\b', r'\bhướng dẫn\b', r'\bcơ chế\b', r'\bnguyên lý\b',
+        r'\bưu nhược điểm\b', r'\bkhác nhau\b'
     ]
-    if any(k in p for k in coding_keywords):
-        return MODEL_ROLES["coder"], "Kỹ thuật & Lập trình (Coder 7B)", {
-            "temperature": 0.2,
-            "top_p": 0.85,
-            "repeat_penalty": 1.15,
-            "num_predict": 110,
-            "num_ctx": 2048,
-        }
+    if any(re.search(pat, p_low) for pat in deep_patterns):
+        return 2048 if is_reasoning else 260
 
-    # 2. Nhóm SUY LUẬN LOGIC / PHÂN TÍCH ĐA BƯỚC -> REASONING MODEL (8B)
-    reasoning_keywords = [
-        "suy luận", "tại sao lại", "chứng minh", "phân tích logic", "so sánh chuyên sâu",
-        "nguyên nhân sâu xa", "đánh giá ưu nhược điểm"
+    # 2. Câu xã giao, cảm ơn, chào hỏi ngắn
+    casual_patterns = [
+        r'^(xin )?chào\b', r'^(hế lô|hello|hi)\b', r'\bcảm ơn\b', r'\bthank\b',
+        r'\btạm biệt\b', r'^(bye|goodbye)\b', r'\bbạn khỏe không\b', r'\bbạn tên gì\b',
+        r'^(ok|ừ|được rồi|tốt lắm|hay lắm)\b'
     ]
-    if any(k in p for k in reasoning_keywords) and MODEL_ROLES["reasoning"] != MODEL_ROLES["fast"]:
-        return MODEL_ROLES["reasoning"], "Suy luận Logic (Reasoning 8B)", {
-            "temperature": 0.5,
-            "top_p": 0.9,
-            "repeat_penalty": 1.15,
-            "num_predict": 100,
-            "num_ctx": 2048,
-        }
+    if any(re.search(pat, p_low) for pat in casual_patterns) and len(p_low.split()) <= 10:
+        return 1024 if is_reasoning else 80
 
-    # 3. MẶC ĐỊNH: MỞ APP TỰ NHIÊN, TRÌNH DUYỆT, TỐC ĐỘ CAO & THƯỜNG NGÀY -> FAST MODEL (3B)
-    return MODEL_ROLES["fast"], "Tốc độ cao & Điều khiển hệ thống (Fast 3B)", {
-        "temperature": 0.3,
-        "top_p": 0.9,
-        "repeat_penalty": 1.18,
-        "num_predict": 60,
-        "num_ctx": 1024,
+    # 3. Câu thông thường
+    return 1500 if is_reasoning else 140
+
+def route_task(prompt: str, force_deep: bool = False) -> tuple[str, str, dict]:
+    """Định tuyến tác vụ cho mô hình cốt lõi qwen3:4b."""
+    target_model = MODEL_ROLES["fast"]
+    num_pred = get_dynamic_num_predict(prompt, model_name=target_model)
+    is_qwen3 = bool(target_model and ("qwen3" in target_model.lower() or "r1" in target_model.lower()))
+    role_label = "Fast 4B (Qwen3)" if is_qwen3 else "Fast 3B"
+    return target_model, role_label, {
+        "temperature": 0.6 if is_qwen3 else 0.3,
+        "top_p": 0.95 if is_qwen3 else 0.9,
+        "repeat_penalty": 1.05,
+        "num_predict": num_pred,
+        "num_ctx": 2048 if is_qwen3 else 1024,
+        "num_gpu": 99,
     }

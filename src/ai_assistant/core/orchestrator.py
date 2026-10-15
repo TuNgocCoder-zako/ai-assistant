@@ -18,24 +18,13 @@ from ai_assistant.ai.model_router import route_task, MODEL_ROLES
 from ai_assistant.tools.registry import tool_registry
 from ai_assistant.speech.tts import speak, sanitize_text_for_voice
 
-AGENT_SYSTEM_PROMPT = """Bạn là Agent Core - Bộ não điều phối hệ thống tối cao trên Arch Linux / Hyprland.
-Bạn có quyền năng kiểm tra, quan sát và điều khiển toàn bộ hệ điều hành thông qua các công cụ (Tools) được cung cấp.
+AGENT_SYSTEM_PROMPT = """Bạn là Agent điều phối hệ thống trên Arch Linux / Hyprland.
+Bạn thực hiện tác vụ bằng cách gọi công cụ (Tools) được cung cấp.
 
-CHU TRÌNH LÀM VIỆC (ReAct: Plan -> Act -> Observe -> Reflect):
-1. PLAN: Khi nhận yêu cầu phức tạp từ người dùng, hãy xác định các bước cần làm.
-2. ACT: Gọi công cụ phù hợp để thực thi từng bước (dùng function call hoặc cú pháp <tool_call>{"name": "...", "arguments": {...}}</tool_call>).
-3. OBSERVE: Phân tích kết quả trả về từ công cụ (exit_code, stdout, stderr, danh sách tiến trình, file).
-4. REFLECT: Đánh giá xem đã đạt mục tiêu chưa, có lỗi phát sinh không, hay cần rẽ nhánh theo điều kiện ('nếu... thì...').
-
-QUY TẮC BẮT BUỘC:
-- BẠN LÀ MỘT AGENT TỰ ĐỘNG: Người dùng yêu cầu bạn thực hiện tác vụ, TUYỆT ĐỐI KHÔNG bảo người dùng tự gõ lệnh. Hãy tự mình gọi công cụ để thực hiện!
-- BẮT BUỘC chỉ sử dụng các công cụ có trong danh sách tools được cung cấp. Tuyệt đối không tự bịa ra công cụ không tồn tại.
-- Nếu yêu cầu có điều kiện (ví dụ: 'nếu build lỗi thì tìm nguyên nhân'), hãy chạy bước kiểm tra trước, quan sát kết quả, rồi mới thực hiện bước tiếp theo.
-- Bạn có thể thực thi nhiều lệnh terminal (git, docker, npm, maven, gradle, cargo, python, bash...) qua công cụ 'run_terminal_command'.
-- Khi đã hoàn thành toàn bộ mục tiêu hoặc có kết luận cuối cùng:
-  * Trả lời bằng tiếng Việt tự nhiên, súc tích 1-2 câu để phát trực tiếp ra loa qua giọng đọc.
-  * Đi thẳng vào trọng tâm, giải thích rõ nguyên nhân nếu có lỗi, không nói vòng vo.
-  * TUYỆT ĐỐI KHÔNG dùng ký tự markdown (*, **, #) hay danh sách gạch đầu dòng trong câu trả lời cuối cùng.
+QUY TẮC:
+- Tự mình gọi công cụ để thực hiện, tuyệt đối không bảo người dùng tự gõ lệnh.
+- Chỉ sử dụng các công cụ có trong danh sách tools được cung cấp.
+- Khi hoàn thành: trả lời bằng 1-2 câu tiếng Việt tự nhiên, không dùng markdown.
 """
 
 class AgentOrchestrator:
@@ -190,29 +179,32 @@ class AgentOrchestrator:
         """
         Nhận diện xem câu lệnh có phải là tác vụ phức tạp/đa bước cần kích hoạt Agent Loop không:
         - Chứa mệnh đề điều kiện: 'nếu', 'thì', 'xem có ... không', 'nếu lỗi'.
-        - Chứa chuỗi hành động tuần tự: 'và sau đó', 'rồi', 'tiếp theo', 'sau đó'.
+        - Chứa chuỗi hành động tuần tự: 'và sau đó', 'sau đó', 'tiếp theo hãy'.
         - Chứa các yêu cầu kiểm tra + phân tích: 'kiểm tra ... và báo', 'build ... tìm nguyên nhân', 'tại sao lại lỗi'.
-        - Chứa các yêu cầu thị giác / quan sát màn hình / webcam (Vision V2.3).
         """
-        t = text.lower().strip()
+        t = text.lower().strip().rstrip(".!?")
 
-        # Từ khóa Vision & Screen Awareness (V2.3) -> Chuyển trực tiếp sang Agent Loop
-        vision_intent_keywords = [
-            "màn hình", "screen", "đang hiện", "đang mở gì", "nhìn màn hình",
-            "xem màn hình", "chụp màn hình", "nhìn thấy gì", "giao diện",
-            "đọc nội dung", "có lỗi gì trên", "webcam", "camera", "nhìn qua camera",
-            "quay camera", "bật camera"
-        ]
-        if any(vk in t for vk in vision_intent_keywords):
-            return True
+        # Bỏ qua các lệnh điều khiển media ngắn gọn (tránh nhầm "bài tiếp theo", "bài sau" thành lệnh đa bước)
+        if re.search(r"\b(?:bài|nhạc|trang)\s+(?:tiếp(?:\s*theo)?|trước|sau)\b", t) or \
+           re.search(r"\b(?:bye|bai|bay|chuyển)\s*,?\s*tiếp\s*(?:theo)?\b", t):
+            return False
 
-        # Từ khóa điều kiện và rẽ nhánh
+        # Nếu câu quá ngắn (<= 3 từ): không thể là tác vụ đa bước
+        words = t.split()
+        if len(words) <= 3:
+            return False
+
+        # Từ khóa điều kiện và rẽ nhánh đa bước
         conditional_keywords = [
-            "nếu", "thì", "sau đó", "rồi", "tiếp theo", "và sau đó",
+            "và sau đó", "sau đó", "tiếp theo hãy", "tiếp theo làm", "tiếp theo thì",
             "tìm nguyên nhân", "sửa lỗi", "xem có lỗi không", "nếu lỗi",
             "nếu không", "kiểm tra và", "kiểm tra xem"
         ]
         if any(k in t for k in conditional_keywords):
+            return True
+
+        # Điều kiện 'nếu... thì...'
+        if "nếu " in t and " thì " in t:
             return True
 
         # Đếm số lượng động từ hành động chính trong câu
@@ -221,30 +213,29 @@ class AgentOrchestrator:
             "compile", "tìm", "lấy", "tải", "giải phóng", "kill", "commit", "push"
         ]
         matched_actions = sum(1 for v in action_verbs if re.search(rf"\b{v}\b", t))
-        if matched_actions >= 2:
+        if matched_actions >= 3:
             return True
 
         return False
 
-    def run_agent_loop(self, prompt: str, voice: str = DEFAULT_VOICE, max_steps: int = 8, budget: Optional[AgentBudget] = None) -> str:
+    def run_agent_loop(self, prompt: str, voice: str = DEFAULT_VOICE, max_steps: int = 8, budget: Optional[AgentBudget] = None, force_deep: bool = False) -> str:
         """
         Thực thi vòng lặp Agent ReAct: Plan -> Act -> Observe -> Reflect.
         Tự động điều phối công cụ, quản lý Budget, phát hiện Stall (lặp vô tận) và lưu Trace.
         """
-        print(f"\n🧠 [Agent Core] Kích hoạt Bộ não điều phối cho tác vụ: '{prompt}'")
+        print(f"\n🧠 [Agent Core] Kích hoạt Bộ não điều phối cho tác vụ: '{prompt}' (Deep: {force_deep})")
         set_assistant_state("thinking", "Đang lập kế hoạch tác vụ...")
 
         # Chọn model phù hợp cho tác vụ:
-        target_model, role_name, _ = route_task(prompt)
-        # Ưu tiên fast (qwen2.5:3b) vì phản xạ dưới 1.5s, tiếng Việt tự nhiên và fit 100% trong VRAM GPU
-        active_model = MODEL_ROLES.get("fast", target_model)
-        if any(w in prompt.lower() for w in ["viết code", "thuật toán", "refactor code", "spring security config"]):
-            active_model = MODEL_ROLES.get("coder", active_model)
+        target_model, role_name, _ = route_task(prompt, force_deep=force_deep)
+        active_model = target_model if force_deep else MODEL_ROLES.get("fast", target_model)
 
         print(f"🎯 [Agent Core] Sử dụng mô hình: {active_model} ({role_name})")
 
         # Khởi tạo Structured Agent State & Budget
         actual_budget = budget or AgentBudget(max_steps=max_steps)
+        if "qwen3" in active_model.lower():
+            actual_budget.max_runtime_sec = max(actual_budget.max_runtime_sec, 90.0)
         state = StructuredAgentState(goal=prompt, model=active_model, budget=actual_budget)
 
         schemas = self.registry.get_relevant_schemas(prompt)
@@ -260,46 +251,10 @@ class AgentOrchestrator:
 
 CÁC CÔNG CỤ KHẢ DỤNG CHO TÁC VỤ NÀY:
 {tools_desc}
-
-QUY TRÌNH BẮT BUỘC:
-1. Khi cần thực hiện tác vụ phức tạp nhiều bước, bạn có thể thiết lập kế hoạch hành động trong trường "plan":
-```json
-{{"plan": ["1. Bước một", "2. Bước hai"], "tool": "<tên_công_cụ>", "arguments": {{...}}}}
-```
-2. Nếu là tác vụ đơn giản hoặc bước tiếp theo:
-```json
-{{"tool": "<tên_công_cụ>", "arguments": {{...}}}}
-```
-
 VÍ DỤ GỌI CÔNG CỤ:
-- Người dùng: "Kiểm tra cổng 8080"
-  Trợ lý:
-```json
-{{"tool": "check_and_manage_port", "arguments": {{"port": 8080}}}}
-```
-- Người dùng: "Đang mở gì trên màn hình?"
-  Trợ lý:
-```json
-{{"tool": "see_screen", "arguments": {{"query": "đang mở ứng dụng gì"}}}}
-```
-- Người dùng: "Tìm dự án voice-ai"
-  Trợ lý:
-```json
-{{"tool": "find_files_or_projects", "arguments": {{"query": "voice-ai"}}}}
-```
-- Người dùng: "Mở ứng dụng intellij"
-  Trợ lý:
-```json
-{{"tool": "launch_application", "arguments": {{"app_name": "intellij"}}}}
-```
-- Người dùng: "Chạy git status"
-  Trợ lý:
 ```json
 {{"tool": "run_terminal_command", "arguments": {{"command": "git status"}}}}
 ```
-
-3. Sau khi nhận được kết quả quan sát, nếu cần làm tiếp thì gọi công cụ kế tiếp.
-4. Khi đã hoàn thành hoặc có kết luận: trả lời người dùng bằng 1-2 câu tiếng Việt tự nhiên súc tích (tuyệt đối không dùng markdown, gạch đầu dòng hay json).
 """
 
         messages = [
@@ -326,7 +281,7 @@ VÍ DỤ GỌI CÔNG CỤ:
             # Hard Deadline Cascade: Tính toán thời gian timeout thực tế còn lại cho LLM
             elapsed_sec = time.time() - state.start_time
             remaining_time = max(3.0, actual_budget.max_runtime_sec - elapsed_sec)
-            llm_timeout = min(remaining_time, 60.0)
+            llm_timeout = min(remaining_time, 90.0 if "qwen3" in active_model.lower() else 60.0)
 
             payload = {
                 "model": active_model,
@@ -336,6 +291,8 @@ VÍ DỤ GỌI CÔNG CỤ:
                 "options": {
                     "temperature": 0.1,
                     "top_p": 0.9,
+                    "num_gpu": 99,
+                    "num_ctx": 2048,
                 }
             }
 
@@ -520,7 +477,12 @@ VÍ DỤ GỌI CÔNG CỤ:
                         "model": MODEL_ROLES["coder"] if "code" in prompt.lower() or "build" in prompt.lower() else MODEL_ROLES["fast"],
                         "messages": messages,
                         "stream": False,
-                        "options": {"temperature": 0.3, "num_predict": 100}
+                        "options": {
+                            "temperature": 0.3,
+                            "num_predict": 100,
+                            "num_gpu": 99,
+                            "num_ctx": 2048,
+                        }
                     },
                     timeout=final_timeout
                 )
@@ -546,7 +508,9 @@ VÍ DỤ GỌI CÔNG CỤ:
         print("=" * 60 + "\n")
 
         # Hiển thị lên Quickshell Overlay và phát ra loa
-        set_assistant_state("speaking", text=final_answer)
+        is_action = any(final_answer.strip().lower().startswith(p) for p in ["đã mở", "đã đóng", "đã tắt", "đã bật", "đã đặt"])
+        is_long = (len(final_answer) > 100 or "\n" in final_answer) and not is_action
+        set_assistant_state("speaking", text=final_answer, query=prompt, is_long_text=is_long, long_answer=final_answer if is_long else "")
         speak(final_answer, voice=voice)
         set_assistant_state("idle")
         return final_answer

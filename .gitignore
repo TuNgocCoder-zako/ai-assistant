@@ -17,12 +17,24 @@ ENV/
 *.swp
 *.swo
 
-# Large model weights / datasets
+# Large model weights / datasets / audio files
+models/
 *.gguf
 *.bin
 *.pt
 *.pth
 *.onnx
+*.pkl
+*.tar.gz
+*.zip
+*.wav
+*.mp3
+training/**/dataset/
+training/**/datasets/
+dataset_wakeword.tar.gz
+
+# Graphify & Knowledge Graph
+graphify-out/
 
 # Environment & sensitive configs
 .env
@@ -36,3 +48,4 @@ ENV/
 # Logs & Traces
 logs/
 *.log
+

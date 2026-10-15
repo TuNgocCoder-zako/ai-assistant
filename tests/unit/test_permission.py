@@ -57,9 +57,12 @@ class TestPermissionAndValidation(unittest.TestCase):
         self.assertEqual(level, PermissionLevel.TERMINAL_EXEC)
 
         # Lệnh nguy hiểm
-        for bad_cmd in ["rm -rf /", "rm -r -f /", "mkfs.ext4 /dev/sda1", ":(){ :|:& };:", "shutdown -h now"]:
+        for bad_cmd in [
+            "rm -rf /", "rm -r -f /", "mkfs.ext4 /dev/sda1", ":(){ :|:& };:",
+            "shutdown -h now", "killall systemd", "pkill -9 hyprland", "kill -9 1", "cat /etc/shadow"
+        ]:
             allowed, reason, level = permission_policy.check("run_terminal_command", {"command": bad_cmd})
-            self.assertFalse(allowed)
+            self.assertFalse(allowed, f"Lệnh '{bad_cmd}' không được phép vượt qua kiểm duyệt!")
             self.assertEqual(level, PermissionLevel.DANGEROUS_BLOCKED)
 
     def test_argument_validator_paths(self):

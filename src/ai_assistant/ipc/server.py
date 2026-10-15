@@ -13,6 +13,8 @@ from ai_assistant.speech.player import trigger_event, stop_current_speech
 
 _server_sock = None
 _server_running = False
+_is_server_instance = False
+_atexit_registered = False
 
 def get_socket_path() -> str:
     """Xác định đường dẫn Unix Domain Socket an toàn."""
@@ -21,9 +23,11 @@ def get_socket_path() -> str:
         return os.path.join(xdg_runtime, "alexa_voice.sock")
     return f"/tmp/alexa_voice_{os.getuid()}.sock"
 
-def cleanup_ipc_socket():
-    """Dọn dẹp socket file khi tắt ứng dụng."""
-    global _server_sock, _server_running
+def cleanup_ipc_socket(force: bool = False):
+    """Dọn dẹp socket file khi tắt ứng dụng hoặc khi khởi động server daemon."""
+    global _server_sock, _server_running, _is_server_instance
+    if not (_is_server_instance or force):
+        return
     _server_running = False
     sock_path = get_socket_path()
     if _server_sock is not None:
@@ -37,15 +41,14 @@ def cleanup_ipc_socket():
             os.remove(sock_path)
         except Exception:
             pass
-
-atexit.register(cleanup_ipc_socket)
+    _is_server_instance = False
 
 def start_ipc_server():
     """Chạy Unix Domain Socket Server trong luồng ngầm với phân quyền bảo mật 0o600."""
-    global _server_sock, _server_running
+    global _server_sock, _server_running, _is_server_instance, _atexit_registered
     sock_path = get_socket_path()
 
-    cleanup_ipc_socket()
+    cleanup_ipc_socket(force=True)
 
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -56,6 +59,10 @@ def start_ipc_server():
         server.settimeout(1.0)
         _server_sock = server
         _server_running = True
+        _is_server_instance = True
+        if not _atexit_registered:
+            atexit.register(cleanup_ipc_socket)
+            _atexit_registered = True
     except Exception as e:
         print(f"⚠️ Không thể khởi động IPC socket: {e}")
         try:
@@ -81,10 +88,17 @@ def start_ipc_server():
                     if not raw_data:
                         conn.close()
                         continue
-                    cmd = raw_data.decode("utf-8", errors="ignore").strip().lower()
+                    raw_text = raw_data.decode("utf-8", errors="ignore").strip()
+                    cmd = raw_text.lower()
                     if cmd in ["trigger", "wake", "listen", "hotkey"]:
                         trigger_event.set()
                         conn.sendall(b"OK:triggered\n")
+                    elif cmd in ["relisten", "skip", "next"]:
+                        stop_current_speech()  # Dừng ngay LLM suy nghĩ và dừng đọc loa
+                        trigger_event.set()    # Mở Micro bắt đầu lượt nghe mới ngay
+                        from ai_assistant.core.ui_state import set_assistant_state
+                        set_assistant_state("listening", "Đang lắng nghe... (Hãy nói vào micro)")
+                        conn.sendall(b"OK:relistening\n")
                     elif cmd in ["stop", "cancel", "mute", "quiet"]:
                         stop_current_speech()
                         conn.sendall(b"OK:stopped\n")
@@ -93,11 +107,37 @@ def start_ipc_server():
                         conn.sendall(f"{st}\n".encode())
                     elif cmd == "ping":
                         conn.sendall(b"pong\n")
+                    elif cmd in ["screenshot", "capture_screen"]:
+                        from ai_assistant.tools.vision import capture_screen
+                        res = capture_screen()
+                        conn.sendall(json.dumps(res).encode() + b"\n")
+                    elif raw_text.lower().startswith("query:") or raw_text.lower().startswith("deep_query:"):
+                        is_deep = raw_text.lower().startswith("deep_query:")
+                        prefix_len = 11 if is_deep else 6
+                        query_content = raw_text[prefix_len:].strip()
+                        stop_current_speech()
+                        conn.sendall(b"OK:processing\n")
+                        from ai_assistant.core.agent import execute_text_command
+                        threading.Thread(
+                            target=execute_text_command,
+                            kwargs={"user_text": query_content, "force_agent": is_deep},
+                            daemon=True
+                        ).start()
                     else:
                         conn.sendall(b"ERR:unknown_command\n")
+                except Exception as ex:
+                    print(f"⚠️ Lỗi xử lý lệnh IPC '{cmd}': {ex}", flush=True)
+                    try:
+                        conn.sendall(f"ERR:{ex}\n".encode())
+                    except Exception:
+                        pass
                 finally:
-                    conn.close()
-            except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"⚠️ Ngoại lệ vòng lặp IPC server: {e}", flush=True)
                 continue
 
     t = threading.Thread(target=_server_loop, daemon=True)

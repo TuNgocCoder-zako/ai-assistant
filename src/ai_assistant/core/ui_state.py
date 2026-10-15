@@ -17,13 +17,54 @@ from ai_assistant.config import STATE_FILE_PATH, OVERLAY_QML_PATH
 state_lock = threading.Lock()
 assistant_state = {"status": "idle"}  # "idle", "listening", "thinking", "speaking"
 
-def set_assistant_state(status: str, text: str = "", subtext: str = ""):
+ACTION_PREFIXES = (
+    "đã mở", "đã đóng", "đã tắt", "đã bật", "đã đặt",
+    "đã chụp", "đã ghi", "đã chuyển", "đã tạm dừng",
+    "kết quả là", "tạm biệt", "chào bạn", "xin lỗi"
+)
+
+def set_assistant_state(
+    status: str,
+    text: str = "",
+    subtext: str = "",
+    query: str = "",
+    is_long_text: bool = None,
+    long_answer: str = "",
+    clear_card: bool = False
+):
     """Cập nhật trạng thái hiển thị UI và ghi ra state file để Quickshell hiển thị."""
     with state_lock:
         assistant_state["status"] = status
         assistant_state["text"] = text
         assistant_state["subtext"] = subtext
         assistant_state["updated_at"] = time.time()
+
+        if clear_card:
+            assistant_state["is_long_text"] = False
+            assistant_state["long_answer"] = ""
+            assistant_state["query"] = ""
+        else:
+            if query:
+                assistant_state["query"] = query
+
+            if is_long_text is not None:
+                assistant_state["is_long_text"] = is_long_text
+                if is_long_text:
+                    assistant_state["long_answer"] = long_answer or text
+                elif not is_long_text and status != "idle":
+                    assistant_state["long_answer"] = ""
+            else:
+                if status in ("listening", "thinking") and not assistant_state.get("is_long_text", False):
+                    assistant_state["is_long_text"] = False
+                    assistant_state["long_answer"] = ""
+                elif status == "speaking" and not assistant_state.get("is_long_text", False):
+                    # Tự động nhận diện văn bản dài (> 90 ký tự và không phải câu lệnh thao tác hệ thống)
+                    clean_t = text.strip().lower()
+                    is_action = any(clean_t.startswith(p) for p in ACTION_PREFIXES)
+                    if (len(text) > 90 or "\n" in text) and not is_action:
+                        assistant_state["is_long_text"] = True
+                        assistant_state["long_answer"] = text
+
         try:
             tmp = STATE_FILE_PATH + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:

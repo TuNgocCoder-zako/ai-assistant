@@ -36,25 +36,29 @@ def load_whisper_model(selected_model: str = "small") -> tuple[WhisperModel, str
     return stt_model, stt_device, stt_compute_type
 
 def filter_speech_with_vad(audio: np.ndarray) -> np.ndarray:
-    """Lọc thông cao và áp dụng Silero VAD để chỉ giữ lại phần có tiếng người nói."""
+    """
+    Lọc thông cao và áp dụng Silero VAD để chỉ giữ lại phần có tiếng người nói.
+    Bảo toàn nhịp điệu tự nhiên và khoảng nghỉ giữa các từ để Whisper không bị dính chữ.
+    """
     if len(audio) == 0:
         return np.array([], dtype=np.float32)
 
     filtered_audio = sosfilt(SOS_FILTER, audio).astype(np.float32)
     vad_opts = VadOptions(
-        threshold=0.55,
-        min_speech_duration_ms=250,
+        threshold=0.40,
+        min_speech_duration_ms=120,
         min_silence_duration_ms=300,
-        speech_pad_ms=150
+        speech_pad_ms=380
     )
     speech_timestamps = get_speech_timestamps(filtered_audio, vad_opts)
     total_speech_ms = sum(ts['end'] - ts['start'] for ts in speech_timestamps) / (SAMPLE_RATE / 1000)
 
-    if not speech_timestamps or total_speech_ms < 250:
+    if not speech_timestamps or total_speech_ms < 120:
         return np.array([], dtype=np.float32)
 
-    speech_chunks = [filtered_audio[ts['start']:ts['end']] for ts in speech_timestamps]
-    return np.concatenate(speech_chunks)
+    start_sample = max(0, speech_timestamps[0]['start'])
+    end_sample = min(len(filtered_audio), speech_timestamps[-1]['end'])
+    return filtered_audio[start_sample:end_sample]
 
 def is_whisper_hallucination(text: str) -> bool:
     """Kiểm tra xem kết quả Whisper có phải là ảo giác hoặc lặp từ không."""
@@ -62,7 +66,7 @@ def is_whisper_hallucination(text: str) -> bool:
         return True
 
     t = text.lower().strip()
-    if t in [".", "..", "...", "!", "xin chào.", "hẹn gặp lại."]:
+    if t in [".", "..", "...", "!", "hẹn gặp lại."]:
         return True
 
     if any(re.search(p, t, re.IGNORECASE) for p in SPAM_PATTERNS):
@@ -77,25 +81,24 @@ def is_whisper_hallucination(text: str) -> bool:
     return False
 
 def transcribe_audio(stt_model: WhisperModel, audio: np.ndarray) -> str:
-    """Chuyển đổi âm thanh thành văn bản với bộ lọc khử ảo giác nghiêm ngặt."""
+    """Chuyển đổi âm thanh thành văn bản tối ưu cho giọng nói đời thường và môi trường ồn."""
     segments, _ = stt_model.transcribe(
         audio,
         language="vi",
-        beam_size=1,
-        best_of=1,
+        beam_size=5,
+        best_of=5,
         temperature=0.0,
         condition_on_previous_text=False,
         compression_ratio_threshold=2.4,
-        no_speech_threshold=0.50,
-        repetition_penalty=1.15,
+        no_speech_threshold=0.65,
+        repetition_penalty=1.12,
         initial_prompt=WHISPER_INITIAL_PROMPT,
-        vad_filter=True,
-        vad_parameters=dict(threshold=0.55, min_speech_duration_ms=250)
+        vad_filter=False
     )
 
     valid_segments = []
     for s in segments:
-        if s.no_speech_prob < 0.45 and s.avg_logprob > -0.90:
+        if s.no_speech_prob < 0.80 and s.avg_logprob > -3.00:
             t_str = s.text.strip()
             if t_str and len(t_str) > 1:
                 valid_segments.append(t_str)

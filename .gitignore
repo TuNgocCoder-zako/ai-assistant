@@ -48,4 +48,5 @@ graphify-out/
 # Logs & Traces
 logs/
 *.log
-
+!logs/.gitkeep
+!logs/agent/.gitkeep

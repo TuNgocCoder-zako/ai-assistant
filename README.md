@@ -1,4 +1,4 @@
-# 🎙️ Local AI Operating-System Assistant (Alexa V2.3) 🤖⚡👁️
+# 🎙️ Local AI Operating-System Assistant (Alexa V2.4) 🤖⚡👁️
 > **Trợ lý ảo điều khiển hệ điều hành Arch Linux & Hyprland bằng Giọng nói, Thị giác Màn hình/Webcam (Multimodal AI), Phím tắt và Trí tuệ Nhân tạo Cục bộ.**
 
 [![Arch Linux](https://img.shields.io/badge/OS-Arch_Linux-1793d1?logo=arch-linux&logoColor=white)](https://archlinux.org/)
@@ -7,16 +7,31 @@
 [![Ollama](https://img.shields.io/badge/LLM-Ollama_Local-black?logo=ollama&logoColor=white)](https://ollama.ai/)
 [![Faster-Whisper](https://img.shields.io/badge/STT-Faster--Whisper-orange)](https://github.com/SYSTRAN/faster-whisper)
 [![Quickshell](https://img.shields.io/badge/UI-Quickshell_QML-green)](https://quickshell.outfoxxed.me/)
-[![Tests](https://img.shields.io/badge/Tests-66%20Passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-122%20Passed-brightgreen)](tests/)
 
 ---
 
 ## 🌟 Giới Thiệu Tổng Quan
 
-**Voice AI Assistant (Alexa V2.3)** không chỉ là một bot đàm thoại thông thường, mà là một **Local AI OS Agent** nằm ngay trên hệ điều hành Arch Linux / Hyprland của bạn với khả năng **"Nghe - Nhìn - Làm"** toàn diện. Trợ lý kết hợp giữa khả năng **nhận diện âm thanh thời gian thực**, **thị giác máy tính đa phương thức (Vision & Screen Awareness)**, **phản xạ Fast-Path siêu tốc (Median 0.02ms, P90 < 4ms)**, **suy luận LLM cục bộ (Ollama)** và **bộ 18 công cụ điều khiển hệ thống chuyên sâu**.
+**Voice AI Assistant (Alexa V2.4)** không chỉ là một bot đàm thoại thông thường, mà là một **Local AI OS Agent** nằm ngay trên hệ điều hành Arch Linux / Hyprland của bạn với khả năng **"Nghe - Nhìn - Làm"** toàn diện. Trợ lý kết hợp giữa khả năng **nhận diện âm thanh thời gian thực**, **thị giác máy tính đa phương thức (Vision & Screen Awareness)**, **phản xạ Fast-Path siêu tốc (Median 0.02ms, P90 < 4ms)**, **suy luận LLM cục bộ (Ollama)** và **bộ 18 công cụ điều khiển hệ thống chuyên sâu**.
 
-Kiến trúc **V2.3 ("Multimodal Vision & Governed Agent Core")** bổ sung và hoàn thiện:
-- **Thị Giác Máy Tính Đa Phương Thức (Vision & Screen Awareness V2.3):**
+Kiến trúc **V2.4 ("Anti-False-Positive Verifier & Robust Audio Engine")** bổ sung và hoàn thiện:
+- **Kiến Trúc Wake Word 5 Tầng & Bộ Lọc Verifier Cá Nhân Hóa:**
+  - Tích hợp mô hình nhị phân phân loại thứ cấp (`alexa_verifier.pkl`) huấn luyện trên vector đặc trưng âm thanh 96-chiều của openWakeWord, chặn **100% kích hoạt nhầm khi mở nhạc lớn hoặc có tiếng ồn**.
+  - **Silero VAD Gating** (`vad_threshold = 0.50`) lọc tiếng gõ bàn phím, tiếng gõ đập phi ngôn ngữ.
+  - **Temporal Patience** (`patience = 2` / 160ms) chống nhiễu spike tức thời đơn khung.
+  - **Dynamic Music Playback Boost**: Tự động tăng ngưỡng kích hoạt (+0.10) khi phát hiện hệ thống đang phát nhạc qua `playerctl`.
+- **Nâng Cấp Xử Lý Âm Thanh DSP & Whisper STT:**
+  - Mở rộng Pre-roll Ring Buffer lên **600ms** trong `capture.py`, giải quyết triệt để lỗi nuốt phụ âm đầu câu ("bật", "tắt", "mở").
+  - Tối ưu VAD Trimming: Chỉ cắt khoảng lặng thừa đầu/cuối, bảo toàn 100% nhịp ngắt nghỉ tự nhiên giữa các từ để Whisper không ghép dính chữ.
+  - Tăng cường Beam Search Prompt với bộ từ khóa phong phú về ứng dụng và lệnh cửa sổ Hyprland.
+- **Trải Nghiệm Giao Diện Quickshell Dynamic Island:**
+  - Nút dừng khẩn cấp ⏹ (**Stop & Relisten**) trực quan trên cả thanh con nhộng lẫn thẻ câu trả lời; bấm để ngắt suy luận/đọc và mở mic ngay.
+  - Cơ chế **Auto-Hide** thông minh: Tự động thu gọn và ẩn khi ở trạng thái nghỉ, giữ nguyên khi rê chuột hoặc gõ chữ.
+- **Bộ Công Cụ Huấn Luyện Toàn Diện (Training Toolkits):**
+  - Kèm script thu âm chuẩn 16kHz mono `training/wakeword/record_samples.py` và Notebook Google Colab `Train_Alexa_Verifier_Colab.ipynb`.
+  - Hướng dẫn và script thu thập dữ liệu fine-tune Whisper & Piper TTS tiếng Việt.
+- **Thị Giác Máy Tính Đa Phương Thức (Vision & Screen Awareness):**
   - **`see_screen`**: Chụp màn hình Wayland native (`grim`) và phân tích tức thì qua mô hình thị giác (`minicpm-v` / `llava`).
   - **`capture_screen`**: Chụp màn hình lưu thành tệp hình ảnh mà không tốn VRAM LLM.
   - **`analyze_image`**: Phân tích bất kỳ tệp hình ảnh nào đã có trên ổ cứng.
@@ -268,5 +283,6 @@ python benchmarks/bench_nlu.py
 - [x] **V2.0 — Modular Architecture & Universal Tool Registry:** Tái cấu trúc sạch sẽ, đóng gói package, 14+ công cụ, Fast-Path NLU, Quickshell UI.
 - [x] **V2.1 — The Reliable Agent Core:** Cấu trúc trạng thái, kiểm soát tài nguyên (`AgentBudget`), chặn lặp vô tận (`Stall Detection`), ghi vết minh bạch (`logs/agent/`), benchmark thực tế (<4ms).
 - [x] **V2.3 — Multimodal Vision & Screen Awareness:** Tích hợp 4 công cụ thị giác (`see_screen`, `capture_screen`, `analyze_image`, `watch_camera`), Wayland native (`grim`/`slurp`), Webcam (OpenCV/ffmpeg), Image Caching (MD5 hash + TTL), Structured Planner (`state.plan`), Dedicated Retry Controller, Dynamic Deadline Cascade, chuẩn hóa role `tool`.
-- [ ] **V2.4 — Autonomous Computer Use:** Tổng hợp phím bấm và trỏ chuột trên Wayland (`wlrctl` / `ydotool`), thực thi tác vụ đồ họa tự động có vòng lặp kiểm tra trực quan.
+- [x] **V2.4 — Anti-False-Positive Verifier & Robust Audio Engine:** Bộ lọc Verifier nhị phân cá nhân hóa chống kích hoạt nhầm khi mở nhạc lớn, 5 tầng phòng vệ wake word, mở rộng pre-roll ring buffer 600ms, VAD natural pauses preservation, nút Stop & Relisten ⏹ trực quan trên Quickshell overlay, bộ công cụ thu âm và Colab training toolkits.
+- [ ] **V2.5 — Autonomous Computer Use:** Tổng hợp phím bấm và trỏ chuột trên Wayland (`wlrctl` / `ydotool`), thực thi tác vụ đồ họa tự động có vòng lặp kiểm tra trực quan.
 - [ ] **V3.0 — The Local AI Operating System:** Trợ lý chủ động (proactive agent daemon), phân tích ngữ cảnh làm việc liên tục và tương tác thông minh toàn diện.

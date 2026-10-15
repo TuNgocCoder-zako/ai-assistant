@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voice-ai"
-version = "2.0.0"
+version = "2.4.0"
 description = "Local AI OS Agent & Voice Assistant for Arch Linux / Hyprland"
 readme = "README.md"
 requires-python = ">=3.10"
